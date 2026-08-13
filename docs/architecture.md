@@ -1,0 +1,105 @@
+# 后端架构上下文
+
+## 当前已实现
+
+### 技术栈与版本
+
+- 单 Maven JAR：`com.stockpilot:stockpilot-backend:0.0.1-SNAPSHOT`
+- Java 编译目标 17；检查环境实际 Maven 运行在 JDK 25
+- Spring Boot 3.2.3
+- MyBatis-Plus Spring Boot 3 Starter 3.5.5
+- MySQL Connector/J：由 Spring Boot 依赖管理
+- springdoc-openapi 2.0.4
+- JUnit 5 / Spring Boot Test：由 Spring Boot 依赖管理
+- MySQL Docker 镜像：`mysql:8.0`，未固定补丁版本
+
+### 当前目录结构
+
+```text
+StockPilot/
+├─ pom.xml
+├─ README.md
+├─ docker-compose.yml
+├─ .mvn/settings.xml
+├─ docker/mysql/init/001-init.sql
+├─ src/main/java/com/stockpilot/
+│  ├─ StockPilotApplication.java
+│  ├─ common/api
+│  ├─ common/exception
+│  ├─ config
+│  └─ health/{controller,application,infrastructure/mapper,vo}
+└─ src/test/java/com/stockpilot/health/controller
+```
+
+当前不是 Maven 多模块工程，也没有任何业务模块。这不违背模块化单体方向：现阶段先以单部署单元、按业务包隔离，是否拆 Maven 子模块待业务复杂度增长后再评估。
+
+### 当前 Java 包与调用链
+
+```text
+HealthController
+→ HealthApplicationService
+→ DatabaseHealthMapper
+→ SELECT 1
+```
+
+- `common.api`：`ApiResponse`、`ErrorCode`、`CommonErrorCode`。
+- `common.exception`：`BusinessException` 和 `GlobalExceptionHandler`。
+- `config`：Mapper 扫描和 OpenAPI 元数据。
+- `health`：唯一已实现功能，真实检查 MySQL 连接。
+
+### 已实现基础设施
+
+- 统一响应字段：`code`、`message`、`data`、`timestamp`。
+- 参数校验依赖和两类校验异常处理；尚无业务 Request 示例。
+- 业务异常、常用错误码和兜底系统异常处理。
+- MyBatis-Plus 下划线转驼峰、数据库自增 ID 默认策略。
+- OpenAPI JSON 与 Swagger UI。
+- HikariCP 数据源配置。
+- Docker Compose MySQL、数据卷、健康检查和首次初始化脚本。
+- 项目内 Maven 设置，缓存位于 `.m2/repository`。
+
+### 配置和环境
+
+当前只有 `application.yml`，没有 dev/test/prod profile：
+
+- 应用端口默认 `8080`。
+- MySQL 宿主端口默认 `3307`，避免占用本机已有 `3306`。
+- 数据库 URL、用户名、密码支持环境变量覆盖。
+- Compose 端口支持 `MYSQL_HOST_PORT` 覆盖。
+
+当前明文值是本地示例凭据，不能用于生产。尚未建立独立测试配置或自动化数据库集成测试。
+
+### 测试结构
+
+现有 `HealthControllerTest` 使用 standalone MockMvc，并用内存 lambda 代替 Mapper，验证 HTTP 响应结构。它不启动 Spring 容器，也不连接真实 MySQL。真实数据库连接由人工启动应用后的健康接口验证完成。
+
+## 已确认但尚未实现
+
+### 模块化单体业务包
+
+计划按业务能力增加：
+
+- `masterdata`：仓库、库位、商品分类、SKU、供应商。
+- `security`：登录、JWT、RBAC。
+- `inventory`：库存余额、条件更新和流水。
+- `inbound`：采购入库。
+- `outbound`：销售冻结与出库。
+- `alert`：安全库存预警和 MQ 消费幂等。
+
+依赖方向计划为：基础资料被库存及单据模块引用；入库/出库调用库存公开服务；库存不反向依赖单据模块；异步预警不能参与核心库存事务。
+
+### 分层和对象职责
+
+- Controller：HTTP 入参、Bean Validation、权限声明、调用 Application Service、返回 VO。
+- Application Service：组织用例和本地事务；可直接调用本模块 Mapper。
+- Entity：持久化记录，可承载少量真实状态行为，不直接返回前端。
+- Request/DTO：接口输入和查询条件。
+- Command：仅用于复杂、可复用的写业务意图，不与 Request 机械一一复制。
+- VO：接口输出和组合/计算字段。
+- Mapper：数据访问和必要的原子条件 SQL，不编排用例。
+- Domain Service：只在存在跨对象核心规则时创建，禁止空壳 DDD。
+
+### 后续基础设施
+
+Spring Security、JWT、Redis、RabbitMQ、审计自动填充、库存幂等、消息消费记录及更完整的集成测试均尚未实现。必须按 `docs/progress.md` 的阶段限制接入。
+

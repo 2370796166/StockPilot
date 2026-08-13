@@ -1,0 +1,13 @@
+target/
+.m2/
+.idea/
+*.iml
+.vscode/
+*.log
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+*.tmp
+*.bak
