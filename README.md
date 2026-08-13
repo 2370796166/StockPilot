@@ -1,6 +1,6 @@
 # StockPilot Backend
 
-StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。当前已实现后端基础工程和基础资料模块，不包含登录、库存和业务单据。
+StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。当前已实现后端基础工程、基础资料、认证、RBAC 和基础审计，不包含库存和业务单据。
 
 ## 当前能力
 
@@ -14,6 +14,8 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 - 仓库、库位、商品分类、SKU、供应商管理
 - 条件分页、详情、修改及启用/停用
 - Flyway 数据库版本管理和数据库唯一约束
+- Spring Security、BCrypt、JWT Access Token 和数据库驱动的接口权限
+- 用户、角色、权限、关联管理及关键安全操作审计
 
 ## 基础资料接口
 
@@ -30,6 +32,14 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 创建使用 `POST /资源路径`，修改使用 `PUT /资源路径/{id}`，详情使用 `GET /资源路径/{id}`，分页使用 `GET /资源路径?page=1&size=20`，状态变更使用 `PATCH /资源路径/{id}/status`。修改和状态变更必须携带响应中的 `version`，防止覆盖并发修改。
 
 分页支持 `code`、`name`、`status` 条件，单页最大 100。库位还支持 `warehouseId`，SKU 还支持 `categoryId`。编码长度为 2–32，以字母开头，只允许字母、数字、下划线和连字符，保存时统一转成大写。
+
+## 认证与权限
+
+登录接口为 `POST /api/auth/login`。除健康检查、登录及 OpenAPI 页面外，接口必须携带 `Authorization: Bearer <accessToken>`。缺少或无效令牌统一返回 HTTP 401，无权限统一返回 HTTP 403。
+
+安全管理接口位于 `/api/security`，包含用户、角色、权限、关联管理和审计日志查询。基础资料查询需要 `MASTER_DATA_READ`，写操作需要 `MASTER_DATA_WRITE`；用户角色和角色权限分配需要系统管理员持有的 `SECURITY_GRANT`。未明确列入安全规则的新接口默认拒绝访问。
+
+仓库不保存默认账号或 JWT 密钥。首次启动可临时设置 `JWT_SECRET`、`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD` 创建管理员；创建后应清除两个引导账号变量。JWT 密钥至少 32 字符并持续由部署环境提供。本阶段仅提供默认 60 分钟的 Access Token，不提供 Refresh Token。
 
 ## 环境要求
 
@@ -77,7 +87,8 @@ mvn -s .mvn/settings.xml clean test
 
 ### 3. 启动后端
 
-```bash
+```powershell
+$env:JWT_SECRET="替换为至少32字符的随机密钥"
 mvn -s .mvn/settings.xml spring-boot:run
 ```
 
@@ -87,6 +98,7 @@ mvn -s .mvn/settings.xml spring-boot:run
 $env:DB_URL="jdbc:mysql://localhost:3307/stockpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false"
 $env:DB_USERNAME="stockpilot"
 $env:DB_PASSWORD="stockpilot_dev"
+$env:JWT_SECRET="替换为至少32字符的随机密钥"
 mvn -s .mvn/settings.xml spring-boot:run
 ```
 
@@ -128,6 +140,10 @@ MySQL 正常时返回：
 | `DB_USERNAME` | `stockpilot` | 数据库用户 |
 | `DB_PASSWORD` | `stockpilot_dev` | 数据库密码 |
 | `MYSQL_HOST_PORT` | `3307` | Docker MySQL 映射到宿主机的端口 |
+| `JWT_SECRET` | 无 | JWT HMAC 密钥，至少 32 字符 |
+| `JWT_ACCESS_TOKEN_MINUTES` | `60` | Access Token 有效分钟数 |
+| `BOOTSTRAP_ADMIN_USERNAME` | 无 | 仅首次引导管理员时设置 |
+| `BOOTSTRAP_ADMIN_PASSWORD` | 无 | 仅首次引导管理员时设置 |
 
 ## 包结构
 
@@ -136,7 +152,8 @@ com.stockpilot
 ├─ common       统一响应、错误码和异常处理
 ├─ config       MyBatis-Plus、OpenAPI等配置
 ├─ health       健康检查的Controller、应用服务和Mapper
-└─ masterdata   仓库、库位、分类、SKU和供应商
+├─ masterdata   仓库、库位、分类、SKU和供应商
+└─ security     登录、JWT、用户/角色/权限、RBAC和审计
 ```
 
 Controller 只调用应用服务，不直接调用 Mapper。后续商品、库存、入库和出库模块也必须遵守该规则。

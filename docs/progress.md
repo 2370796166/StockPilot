@@ -1,88 +1,47 @@
 # 当前阶段
 
-基础资料模块完成阶段。项目是单 Maven 模块的 Spring Boot 后端，已实现基础资料，没有登录、库存或业务单据代码。
+认证、RBAC 权限和基础审计阶段已完成并验证。项目仍为单 Maven 模块后端，不包含库存或业务单据。
 
-# 已完成并验证
+# 已实现
 
-- 仓库、库位、单层商品分类、SKU、供应商的创建、修改、详情、条件分页和启用/停用接口。
-- 仓库、SKU、供应商、分类编码全局唯一；库位编码在仓库内唯一。真实 HTTP 验证确认不同仓库可使用相同库位编码，重复仓库编码返回 HTTP 409。
-- 库位创建和修改要求关联存在且已启用的仓库；SKU 可选关联存在且已启用的分类。
-- 基础资料无删除接口，停用数据仍可通过详情和状态条件查询。
-- 分页默认 20、上限 100；编码格式、必填字段和分页参数使用 Bean Validation。
-- Flyway 已在现有 MySQL 8.0.46 数据库上成功从 `0.1.0` baseline 执行 `V0.2.0`，创建五张业务表及唯一键、外键、CHECK 约束。
-- 2026-08-13 最终执行 `mvn -s .mvn/settings.xml clean test`：共 10 个测试，0 失败、0 错误、0 跳过。
+- 用户、角色、权限的创建、修改、查询和启用/停用。
+- 用户角色、角色权限关联整体替换。
+- BCrypt 密码哈希；用户响应与审计日志均不返回密码哈希。
+- JWT Access Token 登录，无 Refresh Token、Redis 会话或 OAuth2。
+- 每次请求从 MySQL 重载用户启停状态和权限，停用或权限调整即时生效。
+- Spring Security 与方法级权限；统一 401、403 响应。
+- 六个预置角色和安全管理/基础资料权限种子。
+- 安全接口使用 URL 与方法注解双层授权，未知接口默认拒绝；授权关系变更由独立 `SECURITY_GRANT` 控制。
+- 登录结果和安全管理关键写操作审计，摘要不记录密码或完整 Token。
+- JWT 密钥和可选首次管理员凭据只从环境变量读取。
 
-- Java 17 编译目标、Spring Boot 3.2.3 Maven 工程。2026-08-13 交接复验编译 51 个主源码、4 个测试源码，构建成功。
-- 健康检查 HTTP 层及统一响应。`HealthControllerTest` 通过：1 个测试，0 失败、0 错误、0 跳过。
-- 可执行 JAR。执行 `mvn -s .mvn/settings.xml -B -o -DskipTests package` 成功生成 `target/stockpilot-backend-0.0.1-SNAPSHOT.jar`。
-- MyBatis-Plus 和 MySQL 数据源配置存在；健康检查通过 Mapper 执行 `SELECT 1`。
-- Docker Compose MySQL。执行 `docker compose config --quiet` 成功；容器 `stockpilot-mysql` 当前为 `healthy`，宿主端口 `3307`。
-- 数据库迁移。实际查询确认 Flyway `0.1.0` baseline 和 `V0.2.0` 均成功，存在五张基础资料表及 `schema_version`、`flyway_schema_history`。
-- 应用与数据库端到端连接已于 2026-08-13 交接时再次启动验证：`GET /api/health` 返回 `SUCCESS`、应用 `UP`、数据库 `UP`；`/v3/api-docs` 返回标题 `StockPilot API`、版本 `v1`；基础资料只读分页接口正常。验证后临时应用进程已停止。
-- README、`.gitignore` 和项目 Maven settings 已存在并经本次内容核对。
+# 验证状态
 
-# 已完成但未充分验证
+- 2026-08-13 安全审查修复后执行 `mvn -s .mvn/settings.xml clean test` 成功：编译 74 个主源码、8 个测试源码；23 个测试，0 失败、0 错误、0 跳过。
+- `mvn -s .mvn/settings.xml -DskipTests package` 成功生成可执行 JAR；`docker compose config --quiet` 静态配置检查成功。
+- 真实 MySQL 执行 Flyway `V0.3.0`、`V0.3.1` 成功，版本 0.1.0、0.2.0、0.3.0、0.3.1 均为 success；存在 6 个角色和 10 个权限。
+- 真实应用验证：健康检查 200/UP；缺少 Token 返回 401；管理员权限访问返回 200；无权限用户返回 403；登录返回 Bearer Access Token；审计日志可查询。
+- 数据库只读检查确认验证用户密码为 `$2a$` BCrypt 哈希且不等于明文；审计摘要中未发现验证密码或 JWT 头片段。
+- 自动测试覆盖正确登录、密码错误、用户不存在、用户停用、缺少/非法/过期 Token、有权限、无权限、BCrypt 落库及审计敏感信息。
+- 安全审查回归新增覆盖：停用用户已有 Token 立即返回 401、普通安全写权限不能修改授权关系、未知接口默认 403、非 HS256 JWT header 拒绝、登录失败统一公开响应。
+- Flyway `V0.3.1` 已在真实 MySQL 执行成功；`SECURITY_GRANT` 仅关联 `SYSTEM_ADMIN`。真实 HTTP 验证确认错误密码与不存在用户均返回相同 401 响应。
+- 交接复验：安全定向测试 13 个全部通过；全量 `clean test` 23 个全部通过；打包成功；最终启动验证应用/数据库均为 UP，受保护接口缺少 Token 返回 401。
+- 当前环境 Maven 运行在 JDK 25，项目按 Java 17 编译；独立 JDK 17 尚未验证。
 
-- 参数校验和业务异常已有基础资料测试覆盖；兜底系统异常仍没有专门测试。
-- Swagger UI 页面未在浏览器中人工检查；OpenAPI JSON 已验证。
-- MySQL 初始化脚本已在现有数据卷执行，但未使用全新数据卷重复验证；不得为验证而擅自删除当前数据卷。
-- 当前环境 Maven 实际运行在 JDK 25；项目按 `release 17` 编译，但本轮未使用独立 JDK 17 运行测试。
+# 计划中且禁止提前开发
 
-# 计划中但尚未开发
-
-- 认证、库存余额、库存流水、采购入库、销售出库。
-- Redis、RabbitMQ、安全库存预警和消费幂等。
-- 数据库集成测试。
+- 库存余额、库存流水、采购入库、销售出库。
+- Redis、RabbitMQ、Refresh Token、OAuth2、单点登录。
 - Vue 3 前端。
-
-# 已知问题
-
-- 当前是 Git 仓库，分支为 `master` 并跟踪 `origin/master`；本阶段实现尚未提交。
-- `application.yml` 和 Compose 含相同的本地开发示例数据库凭据。未发现 Token、API 密钥、`.env` 或 `application-local.yml`；生产环境必须通过外部配置提供秘密。
-- MySQL 镜像使用浮动标签 `mysql:8.0`，未固定补丁版本。
-- `001-init.sql` 仍仅适用于首次创建空数据卷；正式后续变更已改用 Flyway。
-- `target/`、`.m2/`、IDE 文件和本地验证日志均被 `.gitignore` 覆盖，未混入 Git 差异。
-- PowerShell 默认读取 UTF-8 中文时显示乱码；显式 UTF-8 和数据库十六进制检查确认源码、README、SQL 注释实际内容正常。
-- 辅助命令 `mvn -o dependency:tree` 因 dependency 插件未缓存而失败；核心编译、测试和打包不受影响。
 
 # 下一阶段唯一目标
 
-待用户在新对话中明确指定；交接后不得自行继续开发任何模块。
+待用户在新对话中明确指定。未获得明确范围前不得自行开发库存、采购、销售、Redis、RabbitMQ 或前端；若按产品路线继续，应先由用户确认库存中心的实施范围和库存业务待确认项。
 
-# 下一阶段禁止提前开发
+# 已知限制
 
-- 登录和 RBAC
-- 库存余额
-- 采购入库
-- 销售出库
-- 调拨和盘点
-- Redis
-- RabbitMQ
-- 前端
-
-# 启动与验证方法
-
-```powershell
-# 启动并查看MySQL
-docker compose up -d mysql
-docker compose ps
-
-# 干净编译和测试
-mvn -s .mvn/settings.xml clean test
-
-# 打包
-mvn -s .mvn/settings.xml -DskipTests package
-
-# 启动应用
-mvn -s .mvn/settings.xml spring-boot:run
-```
-
-验证地址：
-
-```text
-http://localhost:8080/api/health
-http://localhost:8080/v3/api-docs
-http://localhost:8080/swagger-ui.html
-```
-
-默认 MySQL 地址是 `localhost:3307`。如端口或凭据不同，通过 `MYSQL_HOST_PORT`、`DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 覆盖。
+- MySQL 镜像仍为浮动标签 `mysql:8.0`。
+- 全新空数据卷重放初始化脚本未验证，不得为验证删除现有卷。
+- JWT 为自包含 Access Token；本阶段没有主动撤销单个令牌能力。每次请求会重载用户状态和权限，因此用户停用、角色停用、权限停用及授权调整会让已有 Token 的实际访问能力立即失效；但单个 Token 无法在用户仍启用时单独撤销。
+- 真实验证在本地数据库保留了 `codex_verify_admin` 和一个 `verify_viewer_*` 用户及对应审计记录，未物理删除，以保留审计链；这些账号仅用于本地验证，不是产品默认账号。
+- 本阶段代码、迁移、测试和文档当前尚未提交；Git 差异检查未发现真实密钥、`.env`、构建产物、IDE 文件、日志或临时文件混入待提交范围。

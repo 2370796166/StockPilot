@@ -8,7 +8,7 @@
 - 数据库名 `stockpilot`，默认映射宿主端口 `3307` 到容器 `3306`。
 - 数据保存在命名卷 `stockpilot_mysql_data`。
 - `docker/mysql/init/001-init.sql` 只在首次创建空数据卷时由 MySQL 镜像自动执行。
-- 已引入 Flyway。既有非空数据库以 `0.1.0` 为基线，基础资料迁移版本为 `0.2.0`。
+- 已引入 Flyway。既有非空数据库以 `0.1.0` 为基线，基础资料迁移为 `0.2.0`，安全迁移为 `0.3.0` 和 `0.3.1`。
 - `schema_version` 保留为历史骨架记录，后续版本以 `flyway_schema_history` 为准。
 
 ### 实际存在的表
@@ -26,7 +26,9 @@
 | `description` | `VARCHAR(255)` | 非空 |
 | `installed_at` | `DATETIME(3)` | 非空，默认 `CURRENT_TIMESTAMP(3)` |
 
-当前实际执行 Flyway 后版本为 `0.2.0`，存在 `warehouse`、`warehouse_location`、`product_category`、`sku`、`supplier` 五张基础资料表。数据库中仍没有用户、库存、单据或审计表。
+`V0.3.0` 新增 `sys_user`、`sys_role`、`sys_permission`、`sys_user_role`、`sys_role_permission` 和 `audit_log`。2026-08-13 已在目标 MySQL 验证迁移成功，0.1.0、0.2.0、0.3.0 均为 success；数据库中仍没有库存或单据表。
+
+安全审查迁移 `V0.3.1` 新增独立 `SECURITY_GRANT` 权限并仅关联 `SYSTEM_ADMIN`，已在目标 MySQL 验证成功。
 
 基础资料共同字段为 `id`、`code`、`name`、`status`、`remark`、创建/更新时间和乐观锁 `version`。SKU 额外包含可选 `category_id` 与必填 `unit`；库位包含必填 `warehouse_id`；供应商预留可选联系人和联系电话字段。
 
@@ -38,13 +40,11 @@
 
 ## 2. 已确认、待实现
 
-以下只是设计基线，不代表表已经存在，也不在本次创建 SQL：
+以下只是设计基线，不代表表已经存在：
 
-- 权限：`sys_user`、`sys_role`、`sys_permission` 及关联表。
-- 基础资料已实现，不再属于待实现范围。
 - 库存：`inventory_balance`、`inventory_ledger`、安全库存配置。
 - 单据：采购入库单及明细、销售出库单及明细。
-- 可靠性与审计：幂等请求记录、操作审计日志、MQ 消费记录、安全库存预警。
+- 可靠性：幂等请求记录、MQ 消费记录、安全库存预警。基础安全审计表已经实现。
 
 ### 约束基线
 

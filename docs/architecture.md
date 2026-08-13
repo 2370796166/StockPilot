@@ -29,9 +29,10 @@ StockPilot/
 │  ├─ common/exception
 │  ├─ config
 │  ├─ health/{controller,application,infrastructure/mapper,vo}
-│  └─ masterdata/{warehouse,location,category,sku,supplier,...}
+│  ├─ masterdata/{warehouse,location,category,sku,supplier,...}
+│  └─ security/{controller,application,auth,audit,domain,infrastructure,...}
 ├─ src/main/resources/db/migration
-└─ src/test/java/com/stockpilot/{health,masterdata}
+└─ src/test/java/com/stockpilot/{health,masterdata,security}
 ```
 
 当前不是 Maven 多模块工程，已在单模块内按 `masterdata` 业务包实现基础资料。是否拆 Maven 子模块待业务复杂度增长后再评估。
@@ -50,6 +51,7 @@ HealthController
 - `config`：Mapper 扫描和 OpenAPI 元数据。
 - `health`：真实检查 MySQL 连接。
 - `masterdata`：仓库、库位、单层商品分类、SKU、供应商的 Controller、Application Service、Entity、Mapper、Request 和 VO。
+- `security`：登录、JWT、用户/角色/权限与关联、双层 RBAC、BCrypt 和审计日志。
 
 基础资料 Controller 只调用 Application Service。标准资料复用泛型 CRUD 应用服务；库位和 SKU 使用专用服务实现仓库/分类关联规则。数据库唯一约束承担并发重复创建的最终保障，应用层将 `DuplicateKeyException` 转换为 409 业务错误。
 
@@ -77,7 +79,7 @@ HealthController
 
 ### 测试结构
 
-现有测试使用 standalone MockMvc 和 Mockito Mapper 替身，覆盖健康检查、基础资料校验、CRUD 编排、唯一冲突转换及库位关联规则；不启动 Spring 容器，也不连接真实 MySQL。Flyway、数据库连接和基础资料只读接口由本阶段人工启动应用验证。
+现有测试包含 standalone MockMvc/Mockito 单元测试和安全 WebMvc 上下文测试，覆盖健康检查、基础资料规则、登录分支、BCrypt、JWT 签名与过期、401/403、停用用户旧 Token、默认拒绝和授权越权；自动测试不连接真实 MySQL。Flyway、数据库连接和关键 HTTP 路径由人工启动应用验证。
 
 ## 已确认但尚未实现
 
@@ -86,7 +88,7 @@ HealthController
 计划按业务能力增加：
 
 - `masterdata`：仓库、库位、商品分类、SKU、供应商（已实现）。
-- `security`：登录、JWT、RBAC。
+- `security`：登录、JWT、RBAC、用户/角色/权限管理和安全审计（已实现）。
 - `inventory`：库存余额、条件更新和流水。
 - `inbound`：采购入库。
 - `outbound`：销售冻结与出库。
@@ -107,4 +109,4 @@ HealthController
 
 ### 后续基础设施
 
-Spring Security、JWT、Redis、RabbitMQ、审计自动填充、库存幂等、消息消费记录及更完整的集成测试均尚未实现。必须按 `docs/progress.md` 的阶段限制接入。
+Redis、RabbitMQ、库存幂等、消息消费记录及更完整的集成测试均尚未实现。安全模块使用无状态 Spring Security：JWT 只携带用户身份与有效期，每次请求从 MySQL 重载用户状态和有效权限；密码使用 BCrypt，密钥由外部环境配置，方法级权限拒绝统一返回 403。
