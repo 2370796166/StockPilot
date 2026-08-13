@@ -1,6 +1,6 @@
 # StockPilot Backend
 
-StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。本版本只包含可运行的后端工程骨架，不包含登录、商品或库存业务。
+StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。当前已实现后端基础工程和基础资料模块，不包含登录、库存和业务单据。
 
 ## 当前能力
 
@@ -11,6 +11,25 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 - 同时检查应用与 MySQL 的健康接口
 - Docker Compose MySQL 与初始化脚本
 - JUnit 5 可运行测试
+- 仓库、库位、商品分类、SKU、供应商管理
+- 条件分页、详情、修改及启用/停用
+- Flyway 数据库版本管理和数据库唯一约束
+
+## 基础资料接口
+
+五类资源统一提供创建、修改、详情、分页及状态变更，不提供删除接口：
+
+| 资源 | 路径 |
+|---|---|
+| 仓库 | `/api/master-data/warehouses` |
+| 库位 | `/api/master-data/locations` |
+| 商品分类 | `/api/master-data/categories` |
+| SKU | `/api/master-data/skus` |
+| 供应商 | `/api/master-data/suppliers` |
+
+创建使用 `POST /资源路径`，修改使用 `PUT /资源路径/{id}`，详情使用 `GET /资源路径/{id}`，分页使用 `GET /资源路径?page=1&size=20`，状态变更使用 `PATCH /资源路径/{id}/status`。修改和状态变更必须携带响应中的 `version`，防止覆盖并发修改。
+
+分页支持 `code`、`name`、`status` 条件，单页最大 100。库位还支持 `warehouseId`，SKU 还支持 `categoryId`。编码长度为 2–32，以字母开头，只允许字母、数字、下划线和连字符，保存时统一转成大写。
 
 ## 环境要求
 
@@ -37,7 +56,7 @@ docker compose up -d mysql
 docker compose ps
 ```
 
-等待 `stockpilot-mysql` 状态变为 `healthy`。首次创建数据卷时，MySQL 会自动执行 `docker/mysql/init/001-init.sql`。
+等待 `stockpilot-mysql` 状态变为 `healthy`。首次创建数据卷时，MySQL 会执行 `docker/mysql/init/001-init.sql`；应用启动时 Flyway 自动执行后续迁移。
 
 默认开发连接信息：
 
@@ -116,7 +135,8 @@ MySQL 正常时返回：
 com.stockpilot
 ├─ common       统一响应、错误码和异常处理
 ├─ config       MyBatis-Plus、OpenAPI等配置
-└─ health       健康检查的Controller、应用服务和Mapper
+├─ health       健康检查的Controller、应用服务和Mapper
+└─ masterdata   仓库、库位、分类、SKU和供应商
 ```
 
 Controller 只调用应用服务，不直接调用 Mapper。后续商品、库存、入库和出库模块也必须遵守该规则。

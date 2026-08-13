@@ -8,11 +8,12 @@
 - 数据库名 `stockpilot`，默认映射宿主端口 `3307` 到容器 `3306`。
 - 数据保存在命名卷 `stockpilot_mysql_data`。
 - `docker/mysql/init/001-init.sql` 只在首次创建空数据卷时由 MySQL 镜像自动执行。
-- 当前没有 Flyway 或 Liquibase；`schema_version` 只是初始化记录表，不是迁移工具。
+- 已引入 Flyway。既有非空数据库以 `0.1.0` 为基线，基础资料迁移版本为 `0.2.0`。
+- `schema_version` 保留为历史骨架记录，后续版本以 `flyway_schema_history` 为准。
 
 ### 实际存在的表
 
-2026-08-13 通过目标容器执行 `SHOW TABLES`，只有：
+2026-08-13 通过目标容器执行 `SHOW TABLES`，确认包含以下表：
 
 #### `schema_version`
 
@@ -25,7 +26,11 @@
 | `description` | `VARCHAR(255)` | 非空 |
 | `installed_at` | `DATETIME(3)` | 非空，默认 `CURRENT_TIMESTAMP(3)` |
 
-当前数据版本为 `0.1.0`。数据库中没有用户、基础资料、库存、单据或审计等正式业务表。
+当前实际执行 Flyway 后版本为 `0.2.0`，存在 `warehouse`、`warehouse_location`、`product_category`、`sku`、`supplier` 五张基础资料表。数据库中仍没有用户、库存、单据或审计表。
+
+基础资料共同字段为 `id`、`code`、`name`、`status`、`remark`、创建/更新时间和乐观锁 `version`。SKU 额外包含可选 `category_id` 与必填 `unit`；库位包含必填 `warehouse_id`；供应商预留可选联系人和联系电话字段。
+
+唯一约束：仓库、分类、SKU、供应商编码分别全局唯一；库位为 `(warehouse_id, code)` 唯一。库位到仓库、SKU 到分类使用真实外键。状态使用 CHECK 约束限定为 `ENABLED` 或 `DISABLED`。
 
 ### 已验证编码
 
@@ -36,7 +41,7 @@
 以下只是设计基线，不代表表已经存在，也不在本次创建 SQL：
 
 - 权限：`sys_user`、`sys_role`、`sys_permission` 及关联表。
-- 基础资料：`warehouse`、`warehouse_location`、商品分类、SKU、供应商。
+- 基础资料已实现，不再属于待实现范围。
 - 库存：`inventory_balance`、`inventory_ledger`、安全库存配置。
 - 单据：采购入库单及明细、销售出库单及明细。
 - 可靠性与审计：幂等请求记录、操作审计日志、MQ 消费记录、安全库存预警。
@@ -60,12 +65,10 @@
 
 ## 3. 尚待确认
 
-- 正式数据库版本管理采用 Flyway、Liquibase，还是继续维护初始化脚本；业务表开始开发前必须选定。
-- 商品分类采用单层还是树形结构，以及编码唯一范围。
-- SKU 与商品/SPU 的最小模型和外键关系。
+- 商品分类未来是否升级为树形结构。
+- SKU 是否需要增加独立 SPU 模型。
 - 供应商是否与 SKU 建立供货关系表；下一阶段可先不建立。
 - 外键采用数据库真实约束还是仅应用维护；库存与单据核心关系倾向真实外键。
 - 行金额是否使用生成列，订单头总金额是否持久化。
 - 安全库存按仓库 + SKU 还是仓库 + 库位 + SKU。
 - MySQL 镜像是否固定到明确补丁版本。
-

@@ -13,6 +13,11 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0.1.0
+    baseline-description: existing skeleton schema
 
 mybatis-plus:
   configuration:
