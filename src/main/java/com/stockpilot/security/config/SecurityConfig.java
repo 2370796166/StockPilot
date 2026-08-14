@@ -10,6 +10,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;import com.stockpilot.common.
   .requestMatchers(HttpMethod.GET,"/api/security/permissions/**").hasAuthority("SECURITY_PERMISSION_READ").requestMatchers("/api/security/permissions/**").hasAuthority("SECURITY_PERMISSION_WRITE")
   .requestMatchers(HttpMethod.GET,"/api/security/audit-logs").hasAuthority("AUDIT_LOG_READ")
   .requestMatchers(HttpMethod.GET,"/api/master-data/**").hasAuthority("MASTER_DATA_READ").requestMatchers("/api/master-data/**").hasAuthority("MASTER_DATA_WRITE")
+  .requestMatchers(HttpMethod.GET,"/api/inventory/**").hasAuthority("INVENTORY_READ")
+  .requestMatchers(HttpMethod.GET,"/api/inbound/purchase-receipts/**").hasAuthority("PURCHASE_RECEIPT_READ")
+  .requestMatchers(HttpMethod.POST,"/api/inbound/purchase-receipts/*/approve").hasAuthority("PURCHASE_RECEIPT_APPROVE")
+  .requestMatchers(HttpMethod.POST,"/api/inbound/purchase-receipts/*/complete").hasAuthority("PURCHASE_RECEIPT_COMPLETE")
+  .requestMatchers("/api/inbound/purchase-receipts/**").hasAuthority("PURCHASE_RECEIPT_WRITE")
   .anyRequest().denyAll()).exceptionHandling(e->e.authenticationEntryPoint((q,r,x)->write(r,json,SecurityErrorCode.UNAUTHENTICATED)).accessDeniedHandler((q,r,x)->write(r,json,SecurityErrorCode.FORBIDDEN))).addFilterBefore(jwt,UsernamePasswordAuthenticationFilter.class).build();}
  private static void write(jakarta.servlet.http.HttpServletResponse r,ObjectMapper json,SecurityErrorCode e)throws java.io.IOException{r.setStatus(e.httpStatus().value());r.setContentType(MediaType.APPLICATION_JSON_VALUE);r.setCharacterEncoding("UTF-8");json.writeValue(r.getWriter(),ApiResponse.failure(e));}
 }

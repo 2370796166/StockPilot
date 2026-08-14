@@ -30,9 +30,11 @@ StockPilot/
 │  ├─ config
 │  ├─ health/{controller,application,infrastructure/mapper,vo}
 │  ├─ masterdata/{warehouse,location,category,sku,supplier,...}
+│  ├─ inventory/{controller,application,domain,infrastructure,request,vo}
+│  ├─ inbound/{controller,application,domain,infrastructure,request,vo}
 │  └─ security/{controller,application,auth,audit,domain,infrastructure,...}
 ├─ src/main/resources/db/migration
-└─ src/test/java/com/stockpilot/{health,masterdata,security}
+└─ src/test/java/com/stockpilot/{health,masterdata,inventory,inbound,security}
 ```
 
 当前不是 Maven 多模块工程，已在单模块内按 `masterdata` 业务包实现基础资料。是否拆 Maven 子模块待业务复杂度增长后再评估。
@@ -52,8 +54,34 @@ HealthController
 - `health`：真实检查 MySQL 连接。
 - `masterdata`：仓库、库位、单层商品分类、SKU、供应商的 Controller、Application Service、Entity、Mapper、Request 和 VO。
 - `security`：登录、JWT、用户/角色/权限与关联、双层 RBAC、BCrypt 和审计日志。
+- `inventory`：库存余额、库存流水、只读分页接口、库存不变量和内部差量变更事务；不包含采购、销售、调拨或盘点流程。
+- `inbound`：采购入库单创建/编辑、提交、审核和执行入库；仅通过库存应用服务修改余额与追加流水。
+
+默认角色模型已与最终 MVP 对齐：`ADMIN`、`OPERATOR`、`AUDITOR`。安全框架仍支持动态维护角色和权限，但后续业务设计默认只围绕这三个角色扩展权限。
 
 基础资料 Controller 只调用 Application Service。标准资料复用泛型 CRUD 应用服务；库位和 SKU 使用专用服务实现仓库/分类关联规则。数据库唯一约束承担并发重复创建的最终保障，应用层将 `DuplicateKeyException` 转换为 409 业务错误。
+
+认证链路为：
+
+```text
+AuthenticationController
+→ AuthenticationApplicationService
+→ UserMapper + BCryptPasswordEncoder
+→ JwtService
+→ AuditService
+```
+
+受保护请求链路为：
+
+```text
+JwtAuthenticationFilter
+→ JwtService验证HS256签名和过期时间
+→ DatabaseUserDetailsService重新查询MySQL用户状态与有效权限
+→ URL授权规则 + @PreAuthorize
+→ Controller → Application Service → Mapper
+```
+
+JWT 只包含用户 ID、用户名、签发时间和过期时间，不包含角色权限，不使用服务端会话。用户、角色或权限停用后，已有 Token 的访问能力会因每次请求重载数据库而立即变化。
 
 ### 已实现基础设施
 
@@ -65,6 +93,12 @@ HealthController
 - HikariCP 数据源配置。
 - Docker Compose MySQL、数据卷、健康检查和首次初始化脚本。
 - 项目内 Maven 设置，缓存位于 `.m2/repository`。
+- MyBatis-Plus 已注册乐观锁和 MySQL 分页插件；基础资料及安全主体表使用 `@Version`。
+- 用户角色、角色权限采用事务内“校验 → 删除旧关系 → 批量写入新关系”的整体替换。
+- URL 规则与方法级注解实行双层授权，未明确配置的新接口默认拒绝。
+- 库存 Controller 仅提供余额和流水 GET 分页查询，返回 VO；余额变更只允许通过 `InventoryMutationApplicationService`，更新余额与新增流水处于同一事务。
+- 库存余额 Mapper 不继承通用 CRUD，只提供受限插入、查询和带预期版本的条件更新；流水 Mapper 只提供新增和查询。
+- 采购入库使用受限 Mapper 和应用服务状态机；执行入库以 `SELECT ... FOR UPDATE` 锁定单据，并在同一事务更新库存、写流水和完成单据。
 
 ### 配置和环境
 
@@ -79,9 +113,11 @@ HealthController
 
 ### 测试结构
 
-现有测试包含 standalone MockMvc/Mockito 单元测试和安全 WebMvc 上下文测试，覆盖健康检查、基础资料规则、登录分支、BCrypt、JWT 签名与过期、401/403、停用用户旧 Token、默认拒绝和授权越权；自动测试不连接真实 MySQL。Flyway、数据库连接和关键 HTTP 路径由人工启动应用验证。
+现有测试包含 standalone MockMvc/Mockito 单元测试和安全 WebMvc 上下文测试，覆盖健康检查、基础资料规则、登录分支、BCrypt、JWT 签名与过期、401/403、停用用户旧 Token、默认拒绝、授权越权和采购入库状态机。`mysql-it` Maven 配置会在 Compose MySQL 中创建专用临时库，验证采购入库并发与事务回滚，完成后删除该测试库。
 
-## 已确认但尚未实现
+2026-08-14 采购入库实现后实际编译 105 个主源码、17 个测试源码；常规测试 55 个，真实 MySQL 集成测试 4 个。项目仍未使用 Testcontainers，集成测试依赖本地 Compose MySQL。
+
+## 模块状态与后续计划
 
 ### 模块化单体业务包
 
@@ -89,8 +125,8 @@ HealthController
 
 - `masterdata`：仓库、库位、商品分类、SKU、供应商（已实现）。
 - `security`：登录、JWT、RBAC、用户/角色/权限管理和安全审计（已实现）。
-- `inventory`：库存余额、条件更新和流水。
-- `inbound`：采购入库。
+- `inventory`：库存余额、条件更新和流水（已实现）。
+- `inbound`：采购入库（已实现）。
 - `outbound`：销售冻结与出库。
 - `alert`：安全库存预警和 MQ 消费幂等。
 
@@ -110,3 +146,13 @@ HealthController
 ### 后续基础设施
 
 Redis、RabbitMQ、库存幂等、消息消费记录及更完整的集成测试均尚未实现。安全模块使用无状态 Spring Security：JWT 只携带用户身份与有效期，每次请求从 MySQL 重载用户状态和有效权限；密码使用 BCrypt，密钥由外部环境配置，方法级权限拒绝统一返回 403。
+
+## 当前架构限制与风险
+
+- 项目仍是单 Maven 模块；模块边界依赖包结构和调用纪律，没有编译期模块隔离。
+- `application.yml` 没有 dev/test/prod profile，测试也没有独立数据库配置。
+- JWT 为项目内手写 HS256 实现，没有 `jti`、Refresh Token 或单 Token 撤销能力。
+- `audit_log` 是可查询的基础安全审计表，但数据库权限层尚未限制其 UPDATE/DELETE，也不等同于库存事实流水。
+- 安全管理写操作在事务内记录成功审计；事务失败会连同审计一起回滚，因此不能据此声称所有失败写操作都有审计记录。
+- 基础资料通用服务直接依赖 MyBatis-Plus `BaseMapper`，适合当前简单 CRUD；库存模块不得复制这种通用更新方式。
+- 角色种子已通过 `V0.3.2` 从早期六角色收敛为三个 MVP 角色；采购入库在此基础上增加四个独立权限。

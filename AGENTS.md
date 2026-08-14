@@ -7,8 +7,8 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 ## 技术栈
 
 - Java 17、Spring Boot 3、Maven
-- MyBatis-Plus、MySQL 8
-- 计划接入 Spring Security、JWT、Redis、RabbitMQ、Docker Compose、JUnit 5、Vue 3
+- 已接入 MyBatis-Plus、MySQL 8、Flyway、Spring Security、JWT、Docker Compose、JUnit 5
+- 计划在核心库存业务完成后接入 Redis、RabbitMQ；Vue 3 后端稳定后再开发
 - 架构为模块化单体；禁止自行引入 Spring Cloud、微服务、Kubernetes 或分布式事务
 
 ## 长期架构规则
@@ -54,4 +54,3 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 - 未执行的验证必须明确写为“未验证”；失败不得描述为通过。
 - 每次只完成用户指定范围，禁止提前开发后续功能。
 - 不擅自删除用户文件、重置工作区或覆盖有效文档。
-

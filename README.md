@@ -1,6 +1,14 @@
 # StockPilot Backend
 
-StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。当前已实现后端基础工程、基础资料、认证、RBAC 和基础审计，不包含库存和业务单据。
+StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。当前已实现后端基础工程、基础资料、认证、RBAC、基础审计、库存余额与不可变库存流水底座，以及采购入库闭环；销售出库等业务单据仍未实现。
+
+项目需求、架构和进度以以下文档为准：
+
+- `docs/requirements.md`：MVP范围和产品规则
+- `docs/architecture.md`：当前代码结构与后续模块边界
+- `docs/inventory-rules.md`：未来库存实现必须遵守的不变量
+- `docs/database.md`：实际数据库状态和待实现基线
+- `docs/progress.md`：当前验证结果和下一阶段限制
 
 ## 当前能力
 
@@ -16,6 +24,10 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 - Flyway 数据库版本管理和数据库唯一约束
 - Spring Security、BCrypt、JWT Access Token 和数据库驱动的接口权限
 - 用户、角色、权限、关联管理及关键安全操作审计
+- 库存余额和库存流水分页查询，库存维度为仓库、库位、SKU
+- 内部零库存初始化用例；没有公开库存写接口或手工调整能力
+- 采购入库单草稿、编辑、提交、审核和执行入库闭环
+- 采购入库完成时在同一事务更新库存余额、追加流水并完成单据
 
 ## 基础资料接口
 
@@ -39,7 +51,35 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 
 安全管理接口位于 `/api/security`，包含用户、角色、权限、关联管理和审计日志查询。基础资料查询需要 `MASTER_DATA_READ`，写操作需要 `MASTER_DATA_WRITE`；用户角色和角色权限分配需要系统管理员持有的 `SECURITY_GRANT`。未明确列入安全规则的新接口默认拒绝访问。
 
+最终 MVP 采用 `ADMIN`、`OPERATOR`、`AUDITOR` 三个默认角色。Flyway `V0.3.2` 已将早期六角色种子收敛为这三个角色；角色名称不代表采购、出库等业务已经实现。具体权限基线见 `docs/requirements.md` 和 `docs/decisions.md`。
+
 仓库不保存默认账号或 JWT 密钥。首次启动可临时设置 `JWT_SECRET`、`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD` 创建管理员；创建后应清除两个引导账号变量。JWT 密钥至少 32 字符并持续由部署环境提供。本阶段仅提供默认 60 分钟的 Access Token，不提供 Refresh Token。
+
+## 库存查询接口
+
+库存接口需要 `INVENTORY_READ` 权限，当前只提供分页查询：
+
+| 资源 | 方法与路径 |
+|---|---|
+| 库存余额 | `GET /api/inventory/balances` |
+| 库存流水 | `GET /api/inventory/ledgers` |
+
+余额支持按 `warehouseId`、`locationId`、`skuId` 过滤；流水还支持 `businessType`、`businessNo`。分页参数为 `page`、`size`，单页最多 100 条。当前没有 POST、PUT、PATCH 或 DELETE 库存接口，不能手工调整库存。
+
+## 采购入库接口
+
+采购入库接口位于 `/api/inbound/purchase-receipts`：
+
+| 动作 | 方法与路径 | 权限 |
+|---|---|---|
+| 分页/详情 | `GET /api/inbound/purchase-receipts`、`GET /{id}` | `PURCHASE_RECEIPT_READ` |
+| 创建草稿 | `POST /api/inbound/purchase-receipts` | `PURCHASE_RECEIPT_WRITE` |
+| 编辑草稿 | `PUT /api/inbound/purchase-receipts/{id}` | `PURCHASE_RECEIPT_WRITE` |
+| 提交 | `POST /api/inbound/purchase-receipts/{id}/submit` | `PURCHASE_RECEIPT_WRITE` |
+| 审核 | `POST /api/inbound/purchase-receipts/{id}/approve` | `PURCHASE_RECEIPT_APPROVE` |
+| 执行入库 | `POST /api/inbound/purchase-receipts/{id}/complete` | `PURCHASE_RECEIPT_COMPLETE` |
+
+状态固定为 `DRAFT → SUBMITTED → APPROVED → COMPLETED`。业务单号创建后不可修改；只有草稿可以整体替换明细。执行入库按单据行加锁防重复，成功后不能编辑或再次执行。
 
 ## 环境要求
 
@@ -83,6 +123,12 @@ docker compose ps
 
 ```bash
 mvn -s .mvn/settings.xml clean test
+```
+
+真实 MySQL 并发和事务回滚集成测试需要本地 Compose MySQL 正常运行：
+
+```bash
+mvn -s .mvn/settings.xml -Pmysql-it verify
 ```
 
 ### 3. 启动后端
@@ -153,10 +199,12 @@ com.stockpilot
 ├─ config       MyBatis-Plus、OpenAPI等配置
 ├─ health       健康检查的Controller、应用服务和Mapper
 ├─ masterdata   仓库、库位、分类、SKU和供应商
+├─ inventory    库存余额、库存流水和内部库存变更服务
+├─ inbound      采购入库闭环
 └─ security     登录、JWT、用户/角色/权限、RBAC和审计
 ```
 
-Controller 只调用应用服务，不直接调用 Mapper。后续商品、库存、入库和出库模块也必须遵守该规则。
+Controller 只调用应用服务，不直接调用 Mapper。后续出库、调拨和盘点模块也必须遵守该规则。
 
 ## 停止基础设施
 
