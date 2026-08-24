@@ -16,6 +16,8 @@ import com.stockpilot.inventory.application.InventoryMutationApplicationService;
 import com.stockpilot.inventory.application.PurchaseReceiptInventoryCommand;
 import com.stockpilot.masterdata.application.MasterDataReferenceApplicationService;
 import com.stockpilot.masterdata.vo.PageResult;
+import com.stockpilot.messaging.application.TransactionalOutboxApplicationService;
+import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.security.auth.StockPilotPrincipal;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -35,16 +37,19 @@ public class PurchaseReceiptApplicationService {
     private final PurchaseReceiptLineMapper lines;
     private final MasterDataReferenceApplicationService masterData;
     private final InventoryMutationApplicationService inventory;
+    private final TransactionalOutboxApplicationService outbox;
 
     public PurchaseReceiptApplicationService(
             PurchaseReceiptMapper receipts,
             PurchaseReceiptLineMapper lines,
             MasterDataReferenceApplicationService masterData,
-            InventoryMutationApplicationService inventory) {
+            InventoryMutationApplicationService inventory,
+            TransactionalOutboxApplicationService outbox) {
         this.receipts = receipts;
         this.lines = lines;
         this.masterData = masterData;
         this.inventory = inventory;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -149,6 +154,9 @@ public class PurchaseReceiptApplicationService {
         if (receipts.complete(id, current.getVersion(), actor.userId(), actor.username()) != 1) {
             throw new BusinessException(PurchaseReceiptErrorCode.CONCURRENT_MODIFICATION);
         }
+        outbox.enqueuePurchaseReceiptCompleted(id, current.getReceiptNo(), current.getWarehouseId(),
+                receiptLines.stream().map(line -> new CompletionBusinessEvent.InventoryDimension(
+                        line.getLocationId(), line.getSkuId())).toList());
         return get(id);
     }
 

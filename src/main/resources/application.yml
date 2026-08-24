@@ -18,6 +18,21 @@ spring:
     baseline-on-migrate: true
     baseline-version: 0.1.0
     baseline-description: existing skeleton schema
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6380}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+      timeout: ${REDIS_TIMEOUT:500ms}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5673}
+    username: ${RABBITMQ_USERNAME:stockpilot}
+    password: ${RABBITMQ_PASSWORD:stockpilot_dev}
+    virtual-host: ${RABBITMQ_VHOST:/stockpilot}
+    connection-timeout: ${RABBITMQ_CONNECTION_TIMEOUT:3s}
+    publisher-confirm-type: correlated
+    publisher-returns: true
 
 mybatis-plus:
   configuration:
@@ -38,8 +53,28 @@ logging:
     com.stockpilot: INFO
 
 stockpilot:
+  cache:
+    enabled: ${CACHE_ENABLED:false}
+    key-prefix: ${CACHE_KEY_PREFIX:stockpilot:v1}
+    sku-ttl: ${CACHE_SKU_TTL:30m}
+    warehouse-ttl: ${CACHE_WAREHOUSE_TTL:30m}
+    null-ttl: ${CACHE_NULL_TTL:60s}
   security:
     jwt-secret: ${JWT_SECRET:}
     access-token-minutes: ${JWT_ACCESS_TOKEN_MINUTES:60}
     bootstrap-admin-username: ${BOOTSTRAP_ADMIN_USERNAME:}
     bootstrap-admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+  messaging:
+    enabled: ${RABBITMQ_ENABLED:false}
+    exchange: ${RABBITMQ_EXCHANGE:stockpilot.business.v1}
+    completion-queue: ${RABBITMQ_COMPLETION_QUEUE:stockpilot.completion.low-stock.v1}
+    dead-letter-exchange: ${RABBITMQ_DLX:stockpilot.dead-letter.v1}
+    dead-letter-queue: ${RABBITMQ_DLQ:stockpilot.completion.low-stock.dlq.v1}
+    dead-letter-routing-key: ${RABBITMQ_DLQ_ROUTING_KEY:stockpilot.completion.low-stock.dead}
+    publisher-batch-size: ${RABBITMQ_PUBLISHER_BATCH_SIZE:20}
+    publisher-max-attempts: ${RABBITMQ_PUBLISHER_MAX_ATTEMPTS:8}
+    publisher-confirm-timeout: ${RABBITMQ_CONFIRM_TIMEOUT:5s}
+    publisher-fixed-delay: ${RABBITMQ_PUBLISHER_FIXED_DELAY:2000}
+    consumer-max-attempts: ${RABBITMQ_CONSUMER_MAX_ATTEMPTS:3}
+    consumer-initial-backoff: ${RABBITMQ_CONSUMER_INITIAL_BACKOFF:500ms}
+    consumer-max-backoff: ${RABBITMQ_CONSUMER_MAX_BACKOFF:5s}

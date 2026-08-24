@@ -1,6 +1,7 @@
 package com.stockpilot.masterdata;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.stockpilot.cache.NoOpReferenceDataCache;
 import com.stockpilot.common.exception.BusinessException;
 import com.stockpilot.masterdata.domain.MasterDataStatus;
 import com.stockpilot.masterdata.request.ChangeStatusRequest;
@@ -41,7 +42,7 @@ class MasterDataApplicationServiceTest {
         when(mapper.selectPage(any(Page.class), any())).thenAnswer(invocation -> {
             Page<WarehouseEntity> page = invocation.getArgument(0); page.setRecords(java.util.List.of(stored)); page.setTotal(1); return page;
         });
-        WarehouseApplicationService service = new WarehouseApplicationService(mapper);
+        WarehouseApplicationService service = new WarehouseApplicationService(mapper, NoOpReferenceDataCache.INSTANCE);
 
         assertEquals("WH01", service.create(new CreateMasterDataRequest("wh01", " 一号仓 ", null)).code());
         assertEquals("新名称", service.update(1, new UpdateMasterDataRequest(" 新名称 ", "备注", 0)).name());
@@ -56,13 +57,13 @@ class MasterDataApplicationServiceTest {
         WarehouseMapper warehouseMapper = mock(WarehouseMapper.class);
         when(warehouseMapper.insert(any())).thenThrow(new DuplicateKeyException("uk_warehouse_code"));
         BusinessException warehouse = assertThrows(BusinessException.class,
-                () -> new WarehouseApplicationService(warehouseMapper).create(new CreateMasterDataRequest("WH01", "仓库", null)));
+                () -> new WarehouseApplicationService(warehouseMapper, NoOpReferenceDataCache.INSTANCE).create(new CreateMasterDataRequest("WH01", "仓库", null)));
         assertEquals("仓库编码已存在", warehouse.getMessage());
 
         SkuMapper skuMapper = mock(SkuMapper.class);
         when(skuMapper.insert(any())).thenThrow(new DuplicateKeyException("uk_sku_code"));
         BusinessException sku = assertThrows(BusinessException.class,
-                () -> new SkuApplicationService(skuMapper, mock(ProductCategoryMapper.class))
+                () -> new SkuApplicationService(skuMapper, mock(ProductCategoryMapper.class), NoOpReferenceDataCache.INSTANCE)
                         .create(new CreateSkuRequest("SKU01", "商品", null, "件", null)));
         assertEquals("SKU编码已存在", sku.getMessage());
 
@@ -85,7 +86,7 @@ class MasterDataApplicationServiceTest {
     void shouldReturnNotFoundForMissingDetail() {
         WarehouseMapper mapper = mock(WarehouseMapper.class);
         BusinessException exception = assertThrows(BusinessException.class,
-                () -> new WarehouseApplicationService(mapper).detail(999));
+                () -> new WarehouseApplicationService(mapper, NoOpReferenceDataCache.INSTANCE).detail(999));
         assertEquals("MASTER_DATA_404", exception.getErrorCode().code());
     }
 

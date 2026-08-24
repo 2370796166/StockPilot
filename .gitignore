@@ -11,3 +11,6 @@ application-local.yml
 application-local.yaml
 *.tmp
 *.bak
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/

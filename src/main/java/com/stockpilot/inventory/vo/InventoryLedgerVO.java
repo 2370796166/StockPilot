@@ -24,6 +24,10 @@ public record InventoryLedgerVO(
         BigDecimal afterFrozenQuantity,
         Integer balanceVersionBefore,
         Integer balanceVersionAfter,
+        BigDecimal countBookQuantity,
+        BigDecimal countedQuantity,
+        BigDecimal differenceQuantity,
+        String adjustmentReason,
         Long operatorId,
         String operatorName,
         LocalDateTime occurredAt) {

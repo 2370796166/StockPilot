@@ -8,12 +8,12 @@
 - 数据库名 `stockpilot`，默认映射宿主端口 `3307` 到容器 `3306`。
 - 数据保存在命名卷 `stockpilot_mysql_data`。
 - `docker/mysql/init/001-init.sql` 只在首次创建空数据卷时由 MySQL 镜像自动执行。
-- 已引入 Flyway。既有非空数据库以 `0.1.0` 为基线，基础资料迁移为 `0.2.0`，安全迁移为 `0.3.0`、`0.3.1` 和 `0.3.2`，库存底座迁移为 `0.4.0`，采购入库迁移为 `0.5.0`。
+- 已引入 Flyway。既有非空数据库以 `0.1.0` 为基线，基础资料迁移为 `0.2.0`，安全迁移为 `0.3.0`、`0.3.1` 和 `0.3.2`，库存底座迁移为 `0.4.0`，采购入库迁移为 `0.5.0`，销售出库迁移为 `0.6.0`，仓库间调拨迁移为 `0.7.0`，静态盘点迁移为 `0.8.0`。
 - `schema_version` 保留为历史骨架记录，后续版本以 `flyway_schema_history` 为准。
 
 ### 实际存在的表
 
-2026-08-14 本轮通过目标容器确认共有 17 张表：
+2026-08-14 盘点迁移后通过目标容器确认共有 25 张表：
 
 ```text
 schema_version
@@ -33,9 +33,17 @@ inventory_balance
 inventory_ledger
 purchase_receipt
 purchase_receipt_line
+sales_outbound_order
+sales_outbound_line
+stock_transfer_order
+stock_transfer_line
+stock_transfer_transit
+inventory_count_order
+inventory_count_line
+inventory_count_scope_lock
 ```
 
-其中 `schema_version` 是骨架遗留版本记录，`flyway_schema_history` 是 Flyway 元数据；业务/应用表为其余 15 张。
+其中 `schema_version` 是骨架遗留版本记录，`flyway_schema_history` 是 Flyway 元数据；业务/应用表为其余 23 张。
 
 #### `schema_version`
 
@@ -48,7 +56,7 @@ purchase_receipt_line
 | `description` | `VARCHAR(255)` | 非空 |
 | `installed_at` | `DATETIME(3)` | 非空，默认 `CURRENT_TIMESTAMP(3)` |
 
-`V0.3.0` 新增安全表；`V0.4.0` 新增库存余额和库存流水；`V0.5.0` 新增采购入库头表、明细表和四个采购权限。2026-08-14 已在目标 MySQL 验证迁移链成功，0.1.0 至 0.5.0 均为 success；数据库中仍没有销售、调拨或盘点单据表。
+`V0.3.0` 新增安全表；`V0.4.0` 新增库存余额和库存流水；`V0.5.0` 新增采购入库头表、明细表和四个采购权限；`V0.6.0` 新增销售出库头表、明细表和四个销售权限；`V0.7.0` 新增调拨头表、明细表、在途表和五个调拨权限；`V0.8.0` 新增盘点头、明细、维度锁表、四个盘点权限及流水盘点元数据。2026-08-14 已在四个 MySQL 专用空库验证迁移链可执行至 `0.8.0`。
 
 安全审查迁移 `V0.3.1` 新增独立 `SECURITY_GRANT` 权限；`V0.3.2` 将早期六角色种子及已有用户角色关系收敛到三个 MVP 角色。两次迁移均已在目标 MySQL 验证成功。
 
@@ -114,7 +122,7 @@ purchase_receipt_line
 - 字段：`id`、`code`、`name`、`description`、`status`、时间字段、`version`。
 - 主键：`id BIGINT AUTO_INCREMENT`。
 - 唯一约束：`uk_sys_permission_code(code)`。
-- 当前种子数据为 15 个权限，包含 `SECURITY_GRANT`、`INVENTORY_READ` 和四个采购入库权限。
+- 迁移至 `0.8.0` 后种子数据为 28 个权限，包含 `SECURITY_GRANT`、`INVENTORY_READ`、四个采购入库权限、四个销售出库权限、五个调拨权限和四个盘点权限。
 
 #### `sys_user_role`
 
@@ -164,21 +172,51 @@ purchase_receipt_line
 - `(receipt_id, line_no)` 和 `(receipt_id, location_id, sku_id)` 分别唯一。
 - 复合外键同时保证明细仓库与单据头一致、库位属于指定仓库；SKU 使用真实外键。
 
+#### `sales_outbound_order` / `sales_outbound_line`
+
+- `outbound_no` 全局唯一，状态限定为 `DRAFT`、`RESERVED`、`APPROVED`、`COMPLETED`、`CANCELLED`。
+- 头表保存制单、冻结、审核、完成、取消操作人与时间；版本列和状态条件更新共同防止非法跳转。
+- 明细数量必须大于零，同单库位/SKU 维度唯一；复合外键保证明细仓库、库位和单据头一致。
+
+#### `stock_transfer_order` / `stock_transfer_line` / `stock_transfer_transit`
+
+- 调拨状态限定为 `DRAFT`、`SUBMITTED`、`APPROVED`、`OUTBOUND_COMPLETED`、`IN_TRANSIT`、`COMPLETED`、`CANCELLED`。
+- 数据库 `CHECK` 保证源仓库与目标仓库不同；复合外键保证源、目标库位分别属于对应仓库。
+- 同一调拨单的源库位/SKU维度和目标库位/SKU维度分别唯一，与库存流水业务动作唯一键保持一致。
+- 在途表按调拨明细唯一，保存调出量、当前在途量、已收货量和状态；约束保证三者算术关系及状态一致。
+- 调出创建在途记录，目标收货使用条件更新把在途量转为已收货量；在途数量不写入任何仓库的库存余额。
+
+#### `inventory_count_order` / `inventory_count_line` / `inventory_count_scope_lock`
+
+- 盘点状态限定为 `DRAFT`、`COUNTING`、`SUBMITTED`、`APPROVED`、`ADJUSTED`；单号全局唯一并保存各状态操作人和版本。
+- 明细按盘点单内库位/SKU唯一，保存 actual、available、frozen、balance version 快照，以及实盘量、自动差异和原因；数据库约束校验快照不变量和差异算术。
+- 维度锁表按 `(warehouse_id, location_id, sku_id)` 唯一，阻止同维度并行盘点和普通库存变更；成功调整后物理释放该操作性锁，盘点头、明细和流水保留审计事实。
+- `inventory_ledger` 对 `INVENTORY_COUNT` 强制保存账面量、实盘量、差异和原因，其他业务类型不得填写这些字段。
+
 #### `flyway_schema_history`
 
-由 Flyway 管理，不得由业务代码修改。目标库当前记录 `0.1.0` 至 `0.5.0`，均为成功。另以采购入库专用临时库成功回放 `0.2.0` 至 `0.5.0`。
+由 Flyway 管理，不得由业务代码修改。采购、销售、调拨、盘点和消息专用临时库均已成功回放迁移至 `0.9.0`。
 
 ### 已验证编码
 
 数据库字符集为 `utf8mb4`，排序规则为 `utf8mb4_0900_ai_ci`。MySQL CLI 输出中文表注释时显示问号，但十六进制检查确认实际存储为正确 UTF-8 字节。
 
+#### 异步消息与安全库存表（`V0.9.0`）
+
+- `safety_stock_rule`：仓库 + 库位 + SKU 唯一阈值规则；阈值非负，可启用或停用。
+- `low_stock_alert`：每条规则一条当前预警状态，保存阈值、最新可用量、来源消息和业务单号；状态为 `OPEN` 或 `RESOLVED`。
+- `async_outbox_message`：以 UUID `message_id` 为主键，保存事件名、版本、业务单号、路由、最小 JSON 载荷、发布次数和状态。
+- `async_consumed_message`：以消息 ID + 消费者名为主键，作为消费事务内的幂等占位。
+- `async_message_trace`：记录 Outbox 创建、发布、重试、消费、重复和死信阶段。
+- `async_failure_record`：保存达到发布/消费重试上限的载荷、原因、发生次数及人工处理状态、处理人和备注。
+
 ## 2. 已确认、待实现
 
 以下只是设计基线，不代表表已经存在：
 
-- 库存：`inventory_balance`、`inventory_ledger` 已实现；安全库存配置待实现。
-- 单据：采购入库单及明细已实现；销售出库单及明细待实现。
-- 可靠性：幂等请求记录、MQ 消费记录、安全库存预警。基础安全审计表已经实现。
+- 库存：`inventory_balance`、`inventory_ledger` 和仓库 + 库位 + SKU 安全库存配置已实现。
+- 单据：采购入库单、销售出库单、仓库间调拨单和静态盘点单及其明细已实现。
+- 可靠性：Outbox、MQ 消费幂等记录、追踪、异常补偿记录和安全库存预警已实现；通用 HTTP 幂等请求记录仍待实现。
 
 ### 约束基线
 
@@ -204,7 +242,6 @@ purchase_receipt_line
 - 供应商是否与 SKU 建立供货关系表；下一阶段可先不建立。
 - 外键采用数据库真实约束还是仅应用维护；库存与单据核心关系倾向真实外键。
 - 行金额是否使用生成列，订单头总金额是否持久化。
-- 安全库存按仓库 + SKU 还是仓库 + 库位 + SKU。
 - MySQL 镜像是否固定到明确补丁版本。
 - `warehouse_location` 的普通仓库索引是否与复合唯一索引重复，实施库存查询后用 `EXPLAIN` 决定。
 - 审计表是否需要数据库账号层面的 INSERT/SELECT 权限限制和归档策略。

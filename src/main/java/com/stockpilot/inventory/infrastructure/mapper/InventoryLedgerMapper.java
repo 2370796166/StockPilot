@@ -18,6 +18,7 @@ public interface InventoryLedgerMapper {
                 before_available_quantity, change_available_quantity, after_available_quantity,
                 before_frozen_quantity, change_frozen_quantity, after_frozen_quantity,
                 balance_version_before, balance_version_after,
+                count_book_quantity, counted_quantity, difference_quantity, adjustment_reason,
                 operator_id, operator_name)
             VALUES (
                 #{ledgerNo}, #{businessType}, #{businessNo},
@@ -26,6 +27,7 @@ public interface InventoryLedgerMapper {
                 #{beforeAvailableQuantity}, #{changeAvailableQuantity}, #{afterAvailableQuantity},
                 #{beforeFrozenQuantity}, #{changeFrozenQuantity}, #{afterFrozenQuantity},
                 #{balanceVersionBefore}, #{balanceVersionAfter},
+                #{countBookQuantity}, #{countedQuantity}, #{differenceQuantity}, #{adjustmentReason},
                 #{operatorId}, #{operatorName})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
@@ -39,6 +41,7 @@ public interface InventoryLedgerMapper {
                    before_available_quantity, change_available_quantity, after_available_quantity,
                    before_frozen_quantity, change_frozen_quantity, after_frozen_quantity,
                    balance_version_before, balance_version_after,
+                   count_book_quantity, counted_quantity, difference_quantity, adjustment_reason,
                    operator_id, operator_name, occurred_at
             FROM inventory_ledger
             <where>

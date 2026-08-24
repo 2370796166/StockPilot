@@ -19,6 +19,7 @@ import com.stockpilot.masterdata.sku.domain.SkuEntity;
 import com.stockpilot.masterdata.sku.infrastructure.mapper.SkuMapper;
 import com.stockpilot.masterdata.warehouse.domain.WarehouseEntity;
 import com.stockpilot.masterdata.warehouse.infrastructure.mapper.WarehouseMapper;
+import com.stockpilot.messaging.application.TransactionalOutboxApplicationService;
 import com.stockpilot.security.auth.StockPilotPrincipal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class PurchaseReceiptApplicationServiceTest {
         InventoryMutationApplicationService inventory = new InventoryMutationApplicationService(
                 mock(InventoryBalanceMapper.class), mock(InventoryLedgerMapper.class), masterData);
         service = new PurchaseReceiptApplicationService(
-                receipts, lines, masterData, inventory);
+                receipts, lines, masterData, inventory, mock(TransactionalOutboxApplicationService.class));
     }
 
     @Test

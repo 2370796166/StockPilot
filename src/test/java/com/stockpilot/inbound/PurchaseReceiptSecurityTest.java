@@ -11,6 +11,7 @@ import com.stockpilot.masterdata.application.MasterDataReferenceApplicationServi
 import com.stockpilot.masterdata.location.infrastructure.mapper.WarehouseLocationMapper;
 import com.stockpilot.masterdata.sku.infrastructure.mapper.SkuMapper;
 import com.stockpilot.masterdata.warehouse.infrastructure.mapper.WarehouseMapper;
+import com.stockpilot.messaging.application.TransactionalOutboxApplicationService;
 import com.stockpilot.security.auth.DatabaseUserDetailsService;
 import com.stockpilot.security.auth.JwtAuthenticationFilter;
 import com.stockpilot.security.auth.JwtService;
@@ -52,6 +53,7 @@ class PurchaseReceiptSecurityTest {
     @MockBean private SkuMapper skus;
     @MockBean private InventoryBalanceMapper balances;
     @MockBean private InventoryLedgerMapper ledgers;
+    @MockBean private TransactionalOutboxApplicationService outbox;
 
     @Test
     void readPermissionAllowsQueries() throws Exception {

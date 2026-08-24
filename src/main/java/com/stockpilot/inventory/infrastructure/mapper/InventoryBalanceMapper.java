@@ -108,9 +108,120 @@ public interface InventoryBalanceMapper {
               AND #{state.availableQuantity} >= 0
               AND #{state.frozenQuantity} >= 0
               AND #{state.actualQuantity} = #{state.availableQuantity} + #{state.frozenQuantity}
+              AND NOT EXISTS (
+                  SELECT 1 FROM inventory_count_scope_lock count_lock
+                  WHERE count_lock.warehouse_id = inventory_balance.warehouse_id
+                    AND count_lock.location_id = inventory_balance.location_id
+                    AND count_lock.sku_id = inventory_balance.sku_id)
             """)
     int updateStateIfVersionMatches(
             @Param("id") long id,
             @Param("expectedVersion") int expectedVersion,
             @Param("state") InventoryBalanceState state);
+
+    @Update("""
+            UPDATE inventory_balance
+            SET available_quantity = available_quantity - #{quantity},
+                frozen_quantity = frozen_quantity + #{quantity},
+                version = version + 1
+            WHERE warehouse_id = #{warehouseId}
+              AND location_id = #{locationId}
+              AND sku_id = #{skuId}
+              AND #{quantity} > 0
+              AND available_quantity >= #{quantity}
+              AND NOT EXISTS (
+                  SELECT 1 FROM inventory_count_scope_lock count_lock
+                  WHERE count_lock.warehouse_id = inventory_balance.warehouse_id
+                    AND count_lock.location_id = inventory_balance.location_id
+                    AND count_lock.sku_id = inventory_balance.sku_id)
+            """)
+    int freezeIfAvailable(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId,
+            @Param("quantity") java.math.BigDecimal quantity);
+
+    @Update("""
+            UPDATE inventory_balance
+            SET actual_quantity = actual_quantity - #{quantity},
+                frozen_quantity = frozen_quantity - #{quantity},
+                version = version + 1
+            WHERE warehouse_id = #{warehouseId}
+              AND location_id = #{locationId}
+              AND sku_id = #{skuId}
+              AND #{quantity} > 0
+              AND actual_quantity >= #{quantity}
+              AND frozen_quantity >= #{quantity}
+              AND NOT EXISTS (
+                  SELECT 1 FROM inventory_count_scope_lock count_lock
+                  WHERE count_lock.warehouse_id = inventory_balance.warehouse_id
+                    AND count_lock.location_id = inventory_balance.location_id
+                    AND count_lock.sku_id = inventory_balance.sku_id)
+            """)
+    int shipIfFrozen(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId,
+            @Param("quantity") java.math.BigDecimal quantity);
+
+    @Update("""
+            UPDATE inventory_balance
+            SET available_quantity = available_quantity + #{quantity},
+                frozen_quantity = frozen_quantity - #{quantity},
+                version = version + 1
+            WHERE warehouse_id = #{warehouseId}
+              AND location_id = #{locationId}
+              AND sku_id = #{skuId}
+              AND #{quantity} > 0
+              AND frozen_quantity >= #{quantity}
+              AND NOT EXISTS (
+                  SELECT 1 FROM inventory_count_scope_lock count_lock
+                  WHERE count_lock.warehouse_id = inventory_balance.warehouse_id
+                    AND count_lock.location_id = inventory_balance.location_id
+                    AND count_lock.sku_id = inventory_balance.sku_id)
+            """)
+    int releaseIfFrozen(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId,
+            @Param("quantity") java.math.BigDecimal quantity);
+
+    @Select("""
+            SELECT COUNT(*) FROM inventory_count_scope_lock
+            WHERE warehouse_id=#{warehouseId} AND location_id=#{locationId} AND sku_id=#{skuId}
+            """)
+    int countActiveCountLocks(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId);
+
+    @Update("""
+            UPDATE inventory_balance
+            SET actual_quantity = #{countedQuantity},
+                available_quantity = #{countedQuantity} - frozen_quantity,
+                version = version + 1
+            WHERE warehouse_id=#{warehouseId} AND location_id=#{locationId} AND sku_id=#{skuId}
+              AND version=#{snapshotVersion}
+              AND actual_quantity=#{snapshotActual}
+              AND available_quantity=#{snapshotAvailable}
+              AND frozen_quantity=#{snapshotFrozen}
+              AND #{countedQuantity} >= frozen_quantity
+              AND EXISTS (
+                  SELECT 1 FROM inventory_count_scope_lock count_lock
+                  WHERE count_lock.count_id=#{countId} AND count_lock.count_line_id=#{countLineId}
+                    AND count_lock.warehouse_id=inventory_balance.warehouse_id
+                    AND count_lock.location_id=inventory_balance.location_id
+                    AND count_lock.sku_id=inventory_balance.sku_id)
+            """)
+    int adjustCountIfSnapshotMatches(
+            @Param("countId") long countId,
+            @Param("countLineId") long countLineId,
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId,
+            @Param("snapshotVersion") int snapshotVersion,
+            @Param("snapshotActual") java.math.BigDecimal snapshotActual,
+            @Param("snapshotAvailable") java.math.BigDecimal snapshotAvailable,
+            @Param("snapshotFrozen") java.math.BigDecimal snapshotFrozen,
+            @Param("countedQuantity") java.math.BigDecimal countedQuantity);
 }

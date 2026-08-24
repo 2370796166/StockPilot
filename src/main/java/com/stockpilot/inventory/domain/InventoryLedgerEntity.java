@@ -22,6 +22,10 @@ public class InventoryLedgerEntity {
     private BigDecimal afterFrozenQuantity;
     private Integer balanceVersionBefore;
     private Integer balanceVersionAfter;
+    private BigDecimal countBookQuantity;
+    private BigDecimal countedQuantity;
+    private BigDecimal differenceQuantity;
+    private String adjustmentReason;
     private Long operatorId;
     private String operatorName;
     private LocalDateTime occurredAt;
@@ -62,6 +66,14 @@ public class InventoryLedgerEntity {
     public void setBalanceVersionBefore(Integer value) { balanceVersionBefore = value; }
     public Integer getBalanceVersionAfter() { return balanceVersionAfter; }
     public void setBalanceVersionAfter(Integer value) { balanceVersionAfter = value; }
+    public BigDecimal getCountBookQuantity() { return countBookQuantity; }
+    public void setCountBookQuantity(BigDecimal value) { countBookQuantity = value; }
+    public BigDecimal getCountedQuantity() { return countedQuantity; }
+    public void setCountedQuantity(BigDecimal value) { countedQuantity = value; }
+    public BigDecimal getDifferenceQuantity() { return differenceQuantity; }
+    public void setDifferenceQuantity(BigDecimal value) { differenceQuantity = value; }
+    public String getAdjustmentReason() { return adjustmentReason; }
+    public void setAdjustmentReason(String value) { adjustmentReason = value; }
     public Long getOperatorId() { return operatorId; }
     public void setOperatorId(Long operatorId) { this.operatorId = operatorId; }
     public String getOperatorName() { return operatorName; }

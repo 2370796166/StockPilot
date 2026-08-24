@@ -32,6 +32,9 @@ StockPilot/
 │  ├─ masterdata/{warehouse,location,category,sku,supplier,...}
 │  ├─ inventory/{controller,application,domain,infrastructure,request,vo}
 │  ├─ inbound/{controller,application,domain,infrastructure,request,vo}
+│  ├─ outbound/{controller,application,domain,infrastructure,request,vo}
+│  ├─ transfer/{controller,application,domain,infrastructure,request,vo}
+│  ├─ inventorycount/{controller,application,domain,infrastructure,request,vo}
 │  └─ security/{controller,application,auth,audit,domain,infrastructure,...}
 ├─ src/main/resources/db/migration
 └─ src/test/java/com/stockpilot/{health,masterdata,inventory,inbound,security}
@@ -54,8 +57,12 @@ HealthController
 - `health`：真实检查 MySQL 连接。
 - `masterdata`：仓库、库位、单层商品分类、SKU、供应商的 Controller、Application Service、Entity、Mapper、Request 和 VO。
 - `security`：登录、JWT、用户/角色/权限与关联、双层 RBAC、BCrypt 和审计日志。
-- `inventory`：库存余额、库存流水、只读分页接口、库存不变量和内部差量变更事务；不包含采购、销售、调拨或盘点流程。
+- `inventory`：库存余额、库存流水、只读分页接口、库存不变量，以及采购入库和销售冻结/出库/释放所需的内部原子变更服务；不编排业务单据流程。
 - `inbound`：采购入库单创建/编辑、提交、审核和执行入库；仅通过库存应用服务修改余额与追加流水。
+- `outbound`：销售出库单创建/编辑、冻结、审核、实际出库和取消释放；仅通过库存应用服务修改余额与追加流水。
+- `transfer`：仓库间调拨单、源仓冻结与调出、独立在途记录、目标仓收货；仅通过库存应用服务修改两端余额。
+- `inventorycount`：静态盘点快照、维度锁、实盘结果、审核和一次性差异调整；仅通过库存应用服务修改余额和写流水。
+- `cache`：SKU、仓库单键详情的 Redis Cache Aside、空值缓存、版本化 JSON 序列化和不可用降级；不承载库存权威数据。
 
 默认角色模型已与最终 MVP 对齐：`ADMIN`、`OPERATOR`、`AUDITOR`。安全框架仍支持动态维护角色和权限，但后续业务设计默认只围绕这三个角色扩展权限。
 
@@ -99,6 +106,9 @@ JWT 只包含用户 ID、用户名、签发时间和过期时间，不包含角�
 - 库存 Controller 仅提供余额和流水 GET 分页查询，返回 VO；余额变更只允许通过 `InventoryMutationApplicationService`，更新余额与新增流水处于同一事务。
 - 库存余额 Mapper 不继承通用 CRUD，只提供受限插入、查询和带预期版本的条件更新；流水 Mapper 只提供新增和查询。
 - 采购入库使用受限 Mapper 和应用服务状态机；执行入库以 `SELECT ... FOR UPDATE` 锁定单据，并在同一事务更新库存、写流水和完成单据。
+- 销售出库使用单据 `SELECT ... FOR UPDATE` 防止同单重复动作，并用带数量下限的原子条件 `UPDATE` 竞争库存；冻结、出库或释放分别与单据状态和流水处于同一事务。
+- 仓库间调拨使用单据行锁和状态条件更新；提交冻结、取消释放、源仓调出及目标仓调入分别使用本地事务，调出在同一事务建立在途事实，调入在同一事务清零在途并增加目标库存。
+- 静态盘点创建时保存余额三字段与版本快照并建立维度锁；普通库存条件更新检查该锁。审核后的调整校验快照，在同一事务更新全部明细余额、追加盘点流水、完成单据并释放锁。
 
 ### 配置和环境
 
@@ -113,9 +123,9 @@ JWT 只包含用户 ID、用户名、签发时间和过期时间，不包含角�
 
 ### 测试结构
 
-现有测试包含 standalone MockMvc/Mockito 单元测试和安全 WebMvc 上下文测试，覆盖健康检查、基础资料规则、登录分支、BCrypt、JWT 签名与过期、401/403、停用用户旧 Token、默认拒绝、授权越权和采购入库状态机。`mysql-it` Maven 配置会在 Compose MySQL 中创建专用临时库，验证采购入库并发与事务回滚，完成后删除该测试库。
+现有测试包含 standalone MockMvc/Mockito 单元测试和安全 WebMvc 上下文测试，覆盖健康检查、基础资料规则、登录分支、BCrypt、JWT、401/403、默认拒绝及各业务权限。`mysql-it` Maven 配置会在 Compose MySQL 中创建专用临时库，验证采购、销售、调拨和盘点的并发、幂等和事务回滚，完成后删除测试库。
 
-2026-08-14 采购入库实现后实际编译 105 个主源码、17 个测试源码；常规测试 55 个，真实 MySQL 集成测试 4 个。项目仍未使用 Testcontainers，集成测试依赖本地 Compose MySQL。
+2026-08-14 盘点实现后实际编译 144 个主源码、23 个测试源码；常规测试 62 个，真实 MySQL 集成测试 27 个。项目仍未使用 Testcontainers，集成测试依赖本地 Compose MySQL。
 
 ## 模块状态与后续计划
 
@@ -127,10 +137,13 @@ JWT 只包含用户 ID、用户名、签发时间和过期时间，不包含角�
 - `security`：登录、JWT、RBAC、用户/角色/权限管理和安全审计（已实现）。
 - `inventory`：库存余额、条件更新和流水（已实现）。
 - `inbound`：采购入库（已实现）。
-- `outbound`：销售冻结与出库。
-- `alert`：安全库存预警和 MQ 消费幂等。
+- `outbound`：销售冻结、审核、出库与取消释放（已实现）。
+- `transfer`：仓库间库存调拨和在途库存（已实现）。
+- `inventorycount`：静态库存盘点和差异调整（已实现）。
+- `messaging`：事务性 Outbox、RabbitMQ 拓扑、发布确认、有限重试、死信、追踪和异常记录（已实现）。
+- `alert`：安全库存规则、预警状态和 MQ 消费幂等（已实现）。
 
-依赖方向计划为：基础资料被库存及单据模块引用；入库/出库调用库存公开服务；库存不反向依赖单据模块；异步预警不能参与核心库存事务。
+依赖方向为：基础资料被库存及单据模块引用；入库/出库调用库存公开服务，并在同一本地事务调用 messaging 公开服务写 Outbox；库存不反向依赖单据模块；RabbitMQ 消费者只查询库存公开服务，异步预警不参与核心库存写事务。
 
 ### 分层和对象职责
 
@@ -145,7 +158,7 @@ JWT 只包含用户 ID、用户名、签发时间和过期时间，不包含角�
 
 ### 后续基础设施
 
-Redis、RabbitMQ、库存幂等、消息消费记录及更完整的集成测试均尚未实现。安全模块使用无状态 Spring Security：JWT 只携带用户身份与有效期，每次请求从 MySQL 重载用户状态和有效权限；密码使用 BCrypt，密钥由外部环境配置，方法级权限拒绝统一返回 403。
+SKU、仓库详情 Redis 缓存已经实现；库存余额、库存流水、分页基础资料和业务幂等标识未缓存。RabbitMQ 异步安全库存预警、Outbox、消息消费记录、追踪、有限重试与死信已实现，并有真实 broker 集成测试。安全模块继续使用无状态 Spring Security：JWT 只携带用户身份与有效期，每次请求从 MySQL 重载用户状态和有效权限；密码使用 BCrypt，密钥由外部环境配置，方法级权限拒绝统一返回 403。
 
 ## 当前架构限制与风险
 

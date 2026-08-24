@@ -23,6 +23,39 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
+  redis:
+    image: redis:7.2-alpine
+    container_name: stockpilot-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: stockpilot-rabbitmq
+    hostname: stockpilot-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: stockpilot
+      RABBITMQ_DEFAULT_PASS: stockpilot_dev
+      RABBITMQ_DEFAULT_VHOST: /stockpilot
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5673}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15673}:15672"
+    volumes:
+      - stockpilot_rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
 volumes:
   stockpilot_mysql_data:
+  stockpilot_rabbitmq_data:

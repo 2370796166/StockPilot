@@ -1,0 +1,157 @@
+package com.stockpilot.transfer.application;
+
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.stockpilot.common.exception.BusinessException;
+import com.stockpilot.inventory.application.InventoryMutationApplicationService;
+import com.stockpilot.inventory.application.TransferInventoryCommand;
+import com.stockpilot.inventory.domain.InventoryBusinessType;
+import com.stockpilot.masterdata.application.MasterDataReferenceApplicationService;
+import com.stockpilot.masterdata.vo.PageResult;
+import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.transfer.api.StockTransferErrorCode;
+import com.stockpilot.transfer.domain.*;
+import com.stockpilot.transfer.infrastructure.mapper.*;
+import com.stockpilot.transfer.request.StockTransferRequests;
+import com.stockpilot.transfer.vo.*;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.math.BigDecimal;
+import java.util.*;
+
+@Service
+public class StockTransferApplicationService {
+ private final StockTransferMapper transfers; private final StockTransferLineMapper lines;
+ private final StockTransferTransitMapper transit; private final MasterDataReferenceApplicationService masterData;
+ private final InventoryMutationApplicationService inventory;
+ public StockTransferApplicationService(StockTransferMapper t,StockTransferLineMapper l,StockTransferTransitMapper x,
+  MasterDataReferenceApplicationService m,InventoryMutationApplicationService i){transfers=t;lines=l;transit=x;masterData=m;inventory=i;}
+
+ @Transactional public StockTransferVO create(StockTransferRequests.Create r,StockPilotPrincipal actor){
+  requireActor(actor); validateWarehouses(r.sourceWarehouseId(),r.targetWarehouseId());
+  List<StockTransferLineEntity> values=buildLines(null,r.sourceWarehouseId(),r.targetWarehouseId(),r.lines());
+  StockTransferEntity value=new StockTransferEntity(); value.setTransferNo(normalizeNo(r.transferNo()));
+  value.setSourceWarehouseId(r.sourceWarehouseId()); value.setTargetWarehouseId(r.targetWarehouseId());
+  value.setStatus(StockTransferStatus.DRAFT); value.setRemark(normalizeRemark(r.remark()));
+  value.setCreatedBy(actor.userId()); value.setCreatedByName(actor.username());
+  try{if(transfers.insert(value)!=1) throw error(StockTransferErrorCode.PERSISTENCE_FAILURE);}
+  catch(DuplicateKeyException e){throw error(StockTransferErrorCode.DUPLICATE_NO);}
+  assign(value.getId(),r.sourceWarehouseId(),r.targetWarehouseId(),values); insertLines(values); return get(value.getId());
+ }
+ @Transactional public StockTransferVO update(long id,StockTransferRequests.Update r,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id); requireState(current,StockTransferStatus.DRAFT); requireVersion(current,r.version());
+  validateWarehouses(r.sourceWarehouseId(),r.targetWarehouseId());
+  List<StockTransferLineEntity> values=buildLines(id,r.sourceWarehouseId(),r.targetWarehouseId(),r.lines());
+  lines.deleteByTransferId(id);
+  if(transfers.updateDraft(id,r.version(),r.sourceWarehouseId(),r.targetWarehouseId(),normalizeRemark(r.remark()))!=1)
+   throw error(StockTransferErrorCode.CONCURRENT_MODIFICATION);
+  insertLines(values); return get(id);
+ }
+ @Transactional public StockTransferVO submit(long id,StockTransferRequests.Transition r,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id); requireState(current,StockTransferStatus.DRAFT); requireVersion(current,r.version());
+  for(StockTransferLineEntity line:sourceSorted(requireLines(id))) inventory.freezeTransfer(sourceCommand(current,line,InventoryBusinessType.TRANSFER_FREEZE,actor));
+  transition(current,StockTransferStatus.DRAFT,StockTransferStatus.SUBMITTED,actor); return get(id);
+ }
+ @Transactional public StockTransferVO approve(long id,StockTransferRequests.Transition r,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id); requireState(current,StockTransferStatus.SUBMITTED); requireVersion(current,r.version());
+  transition(current,StockTransferStatus.SUBMITTED,StockTransferStatus.APPROVED,actor); return get(id);
+ }
+ @Transactional public StockTransferVO dispatch(long id,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id);
+  if(current.getStatus()==StockTransferStatus.OUTBOUND_COMPLETED||current.getStatus()==StockTransferStatus.IN_TRANSIT)
+   throw error(StockTransferErrorCode.ALREADY_OUTBOUND);
+  if(current.getStatus()==StockTransferStatus.COMPLETED) throw error(StockTransferErrorCode.ALREADY_COMPLETED);
+  requireState(current,StockTransferStatus.APPROVED);
+  for(StockTransferLineEntity line:sourceSorted(requireLines(id))){
+   inventory.outboundTransfer(sourceCommand(current,line,InventoryBusinessType.TRANSFER_OUT,actor));
+   StockTransferTransitEntity record=new StockTransferTransitEntity(); record.setTransferId(id); record.setTransferLineId(line.getId());
+   record.setOutboundQuantity(line.getQuantity()); record.setInTransitQuantity(line.getQuantity()); record.setReceivedQuantity(BigDecimal.ZERO.setScale(4));
+   try{if(transit.insert(record)!=1) throw error(StockTransferErrorCode.TRANSIT_CONFLICT);}
+   catch(DuplicateKeyException e){throw error(StockTransferErrorCode.TRANSIT_CONFLICT);}
+  }
+  transition(current,StockTransferStatus.APPROVED,StockTransferStatus.OUTBOUND_COMPLETED,actor); return get(id);
+ }
+ @Transactional public StockTransferVO startTransit(long id,StockTransferRequests.Transition r,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id); requireState(current,StockTransferStatus.OUTBOUND_COMPLETED); requireVersion(current,r.version());
+  if(transit.selectByTransferId(id).size()!=requireLines(id).size()) throw error(StockTransferErrorCode.TRANSIT_CONFLICT);
+  transition(current,StockTransferStatus.OUTBOUND_COMPLETED,StockTransferStatus.IN_TRANSIT,actor); return get(id);
+ }
+ @Transactional public StockTransferVO receive(long id,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id);
+  if(current.getStatus()==StockTransferStatus.COMPLETED) throw error(StockTransferErrorCode.ALREADY_COMPLETED);
+  requireState(current,StockTransferStatus.IN_TRANSIT);
+  List<StockTransferLineEntity> values=targetSorted(requireLines(id));
+  Map<Long,StockTransferTransitEntity> records=new HashMap<>();
+  for(StockTransferTransitEntity record:transit.selectByTransferId(id)) records.put(record.getTransferLineId(),record);
+  if(records.size()!=values.size()) throw error(StockTransferErrorCode.TRANSIT_CONFLICT);
+  for(StockTransferLineEntity line:values){
+   StockTransferTransitEntity record=records.get(line.getId());
+   if(record==null||!"IN_TRANSIT".equals(record.getStatus())||record.getInTransitQuantity().compareTo(line.getQuantity())!=0)
+    throw error(StockTransferErrorCode.TRANSIT_CONFLICT);
+   inventory.inboundTransfer(targetCommand(current,line,actor));
+   if(transit.receive(line.getId(),line.getQuantity())!=1) throw error(StockTransferErrorCode.TRANSIT_CONFLICT);
+  }
+  transition(current,StockTransferStatus.IN_TRANSIT,StockTransferStatus.COMPLETED,actor); return get(id);
+ }
+ @Transactional public StockTransferVO cancel(long id,StockPilotPrincipal actor){
+  requireActor(actor); StockTransferEntity current=locked(id);
+  if(current.getStatus()==StockTransferStatus.CANCELLED) throw error(StockTransferErrorCode.ALREADY_CANCELLED);
+  if(current.getStatus()==StockTransferStatus.OUTBOUND_COMPLETED||current.getStatus()==StockTransferStatus.IN_TRANSIT||current.getStatus()==StockTransferStatus.COMPLETED)
+   throw error(StockTransferErrorCode.ALREADY_OUTBOUND);
+  if(current.getStatus()!=StockTransferStatus.SUBMITTED&&current.getStatus()!=StockTransferStatus.APPROVED)
+   throw error(StockTransferErrorCode.INVALID_STATE);
+  StockTransferStatus before=current.getStatus();
+  for(StockTransferLineEntity line:sourceSorted(requireLines(id))) inventory.releaseTransfer(sourceCommand(current,line,InventoryBusinessType.TRANSFER_RELEASE,actor));
+  transition(current,before,StockTransferStatus.CANCELLED,actor); return get(id);
+ }
+ @Transactional(readOnly=true) public StockTransferVO get(long id){
+  StockTransferEntity value=transfers.selectById(id); if(value==null) throw error(StockTransferErrorCode.NOT_FOUND);
+  return detail(value,lines.selectByTransferId(id),transit.selectByTransferId(id));
+ }
+ @Transactional(readOnly=true) public PageResult<StockTransferSummaryVO> page(StockTransferRequests.PageQuery q){
+  if(StringUtils.hasText(q.getTransferNo())) q.setTransferNo(q.getTransferNo().trim().toUpperCase(Locale.ROOT));
+  IPage<StockTransferEntity> p=transfers.selectPage(Page.of(q.getPage(),q.getSize()),q);
+  return new PageResult<>(p.getRecords().stream().map(this::summary).toList(),p.getTotal(),p.getCurrent(),p.getSize());
+ }
+
+ private List<StockTransferLineEntity> buildLines(Long id,long source,long target,List<StockTransferRequests.Line> requests){
+  if(requests==null||requests.isEmpty()) throw error(StockTransferErrorCode.INVALID_LINE);
+  Set<SourceDimension> sources=new HashSet<>(); Set<TargetDimension> targets=new HashSet<>();
+  List<StockTransferLineEntity> result=new ArrayList<>(); int no=1;
+  for(StockTransferRequests.Line r:requests){
+   if(r==null||r.sourceLocationId()==null||r.targetLocationId()==null||r.skuId()==null) throw error(StockTransferErrorCode.INVALID_LINE);
+   BigDecimal q=quantity(r.quantity());
+   if(!sources.add(new SourceDimension(r.sourceLocationId(),r.skuId())))
+    throw new BusinessException(StockTransferErrorCode.INVALID_LINE,"同一调拨单的源库位和SKU维度不能重复");
+   if(!targets.add(new TargetDimension(r.targetLocationId(),r.skuId())))
+    throw new BusinessException(StockTransferErrorCode.INVALID_LINE,"同一调拨单的目标库位和SKU维度不能重复");
+   masterData.requireEnabledInventoryDimension(source,r.sourceLocationId(),r.skuId());
+   masterData.requireEnabledInventoryDimension(target,r.targetLocationId(),r.skuId());
+   StockTransferLineEntity line=new StockTransferLineEntity(); line.setTransferId(id); line.setSourceWarehouseId(source);
+   line.setTargetWarehouseId(target); line.setLineNo(no++); line.setSourceLocationId(r.sourceLocationId());
+   line.setTargetLocationId(r.targetLocationId()); line.setSkuId(r.skuId()); line.setQuantity(q); result.add(line);
+  } return result;
+ }
+ private void validateWarehouses(long source,long target){if(source==target) throw error(StockTransferErrorCode.SAME_WAREHOUSE);}
+ private List<StockTransferLineEntity> requireLines(long id){List<StockTransferLineEntity> v=lines.selectByTransferId(id);if(v.isEmpty())throw error(StockTransferErrorCode.INVALID_LINE);return v;}
+ private List<StockTransferLineEntity> sourceSorted(List<StockTransferLineEntity> v){return v.stream().sorted(Comparator.comparing(StockTransferLineEntity::getSourceLocationId).thenComparing(StockTransferLineEntity::getSkuId).thenComparing(StockTransferLineEntity::getTargetLocationId)).toList();}
+ private List<StockTransferLineEntity> targetSorted(List<StockTransferLineEntity> v){return v.stream().sorted(Comparator.comparing(StockTransferLineEntity::getTargetLocationId).thenComparing(StockTransferLineEntity::getSkuId).thenComparing(StockTransferLineEntity::getSourceLocationId)).toList();}
+ private TransferInventoryCommand sourceCommand(StockTransferEntity h,StockTransferLineEntity l,InventoryBusinessType type,StockPilotPrincipal a){return new TransferInventoryCommand(h.getSourceWarehouseId(),l.getSourceLocationId(),l.getSkuId(),type,h.getTransferNo(),l.getQuantity(),a.userId(),a.username());}
+ private TransferInventoryCommand targetCommand(StockTransferEntity h,StockTransferLineEntity l,StockPilotPrincipal a){return new TransferInventoryCommand(h.getTargetWarehouseId(),l.getTargetLocationId(),l.getSkuId(),InventoryBusinessType.TRANSFER_IN,h.getTransferNo(),l.getQuantity(),a.userId(),a.username());}
+ private void transition(StockTransferEntity h,StockTransferStatus from,StockTransferStatus to,StockPilotPrincipal a){if(transfers.transition(h.getId(),h.getVersion(),from.name(),to.name(),a.userId(),a.username())!=1)throw error(StockTransferErrorCode.CONCURRENT_MODIFICATION);}
+ private StockTransferEntity locked(long id){StockTransferEntity v=transfers.selectByIdForUpdate(id);if(v==null)throw error(StockTransferErrorCode.NOT_FOUND);return v;}
+ private void requireState(StockTransferEntity v,StockTransferStatus s){if(v.getStatus()!=s)throw new BusinessException(StockTransferErrorCode.INVALID_STATE,"当前状态为"+v.getStatus()+"，要求状态为"+s);}
+ private void requireVersion(StockTransferEntity v,int n){if(!v.getVersion().equals(n))throw error(StockTransferErrorCode.CONCURRENT_MODIFICATION);}
+ private void requireActor(StockPilotPrincipal a){if(a==null||a.userId()==null||a.userId()<=0||!StringUtils.hasText(a.username()))throw error(StockTransferErrorCode.PERSISTENCE_FAILURE);}
+ private void assign(long id,long source,long target,List<StockTransferLineEntity> v){v.forEach(x->{x.setTransferId(id);x.setSourceWarehouseId(source);x.setTargetWarehouseId(target);});}
+ private void insertLines(List<StockTransferLineEntity> v){try{if(lines.insertBatch(v)!=v.size())throw error(StockTransferErrorCode.PERSISTENCE_FAILURE);}catch(DuplicateKeyException e){throw error(StockTransferErrorCode.INVALID_LINE);}}
+ private String normalizeNo(String v){return v.trim().toUpperCase(Locale.ROOT);} private String normalizeRemark(String v){return StringUtils.hasText(v)?v.trim():null;}
+ private BigDecimal quantity(BigDecimal v){if(v==null||v.signum()<=0||v.scale()>4||v.precision()-v.scale()>15)throw error(StockTransferErrorCode.INVALID_LINE);return v.setScale(4);}
+ private StockTransferVO detail(StockTransferEntity h,List<StockTransferLineEntity> l,List<StockTransferTransitEntity> t){return new StockTransferVO(h.getId(),h.getTransferNo(),h.getSourceWarehouseId(),h.getTargetWarehouseId(),h.getStatus(),h.getRemark(),h.getVersion(),h.getCreatedAt(),h.getUpdatedAt(),l.stream().map(x->new StockTransferVO.Line(x.getId(),x.getLineNo(),x.getSourceLocationId(),x.getTargetLocationId(),x.getSkuId(),x.getQuantity())).toList(),t.stream().map(x->new StockTransferVO.Transit(x.getTransferLineId(),x.getOutboundQuantity(),x.getInTransitQuantity(),x.getReceivedQuantity(),x.getStatus(),x.getVersion())).toList());}
+ private StockTransferSummaryVO summary(StockTransferEntity h){return new StockTransferSummaryVO(h.getId(),h.getTransferNo(),h.getSourceWarehouseId(),h.getTargetWarehouseId(),h.getStatus(),h.getRemark(),h.getVersion(),h.getCreatedAt(),h.getUpdatedAt());}
+ private BusinessException error(StockTransferErrorCode c){return new BusinessException(c);}
+ private record SourceDimension(long location,long sku){} private record TargetDimension(long location,long sku){}
+}

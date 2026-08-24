@@ -1,6 +1,7 @@
 package com.stockpilot.masterdata;
 
 import com.stockpilot.common.exception.GlobalExceptionHandler;
+import com.stockpilot.cache.NoOpReferenceDataCache;
 import com.stockpilot.masterdata.warehouse.application.WarehouseApplicationService;
 import com.stockpilot.masterdata.warehouse.controller.WarehouseController;
 import com.stockpilot.masterdata.warehouse.infrastructure.mapper.WarehouseMapper;
@@ -15,7 +16,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class MasterDataControllerValidationTest {
     private MockMvc mvc;
     @BeforeEach void setUp(){
-        mvc=standaloneSetup(new WarehouseController(new WarehouseApplicationService(mock(WarehouseMapper.class))))
+        mvc=standaloneSetup(new WarehouseController(new WarehouseApplicationService(mock(WarehouseMapper.class), NoOpReferenceDataCache.INSTANCE)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
     @Test void shouldRejectBlankRequiredFields() throws Exception {

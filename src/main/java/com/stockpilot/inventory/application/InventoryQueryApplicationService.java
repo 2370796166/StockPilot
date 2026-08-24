@@ -14,6 +14,8 @@ import com.stockpilot.masterdata.vo.PageResult;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 @Transactional(readOnly = true)
 public class InventoryQueryApplicationService {
@@ -37,5 +39,10 @@ public class InventoryQueryApplicationService {
                 Page.of(query.getPage(), query.getSize()), query);
         return new PageResult<>(page.getRecords().stream().map(InventoryViewConverter::ledger).toList(),
                 page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    public Optional<InventoryBalanceVO> findBalance(long warehouseId, long locationId, long skuId) {
+        InventoryBalanceEntity balance = balances.selectByDimension(warehouseId, locationId, skuId);
+        return Optional.ofNullable(balance).map(InventoryViewConverter::balance);
     }
 }

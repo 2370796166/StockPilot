@@ -45,6 +45,8 @@ final class InventoryViewConverter {
                 entity.getBeforeAvailableQuantity(), entity.getChangeAvailableQuantity(), entity.getAfterAvailableQuantity(),
                 entity.getBeforeFrozenQuantity(), entity.getChangeFrozenQuantity(), entity.getAfterFrozenQuantity(),
                 entity.getBalanceVersionBefore(), entity.getBalanceVersionAfter(),
+                entity.getCountBookQuantity(), entity.getCountedQuantity(),
+                entity.getDifferenceQuantity(), entity.getAdjustmentReason(),
                 entity.getOperatorId(), entity.getOperatorName(), entity.getOccurredAt());
     }
 }
