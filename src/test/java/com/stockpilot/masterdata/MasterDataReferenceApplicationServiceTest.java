@@ -1,20 +1,20 @@
 package com.stockpilot.masterdata;
 
-import com.stockpilot.common.exception.BusinessException;
-import com.stockpilot.masterdata.application.MasterDataReferenceApplicationService;
-import com.stockpilot.masterdata.domain.MasterDataStatus;
-import com.stockpilot.masterdata.location.domain.WarehouseLocationEntity;
-import com.stockpilot.masterdata.location.infrastructure.mapper.WarehouseLocationMapper;
-import com.stockpilot.masterdata.sku.domain.SkuEntity;
-import com.stockpilot.masterdata.sku.infrastructure.mapper.SkuMapper;
-import com.stockpilot.masterdata.warehouse.domain.WarehouseEntity;
-import com.stockpilot.masterdata.warehouse.infrastructure.mapper.WarehouseMapper;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
+import com.stockpilot.masterdata.domain.MasterDataStatus;
+import com.stockpilot.masterdata.location.domain.WarehouseLocationEntity;
+import com.stockpilot.masterdata.location.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
+import com.stockpilot.masterdata.sku.domain.SkuEntity;
+import com.stockpilot.masterdata.sku.mapper.SkuMapper;
+import com.stockpilot.masterdata.warehouse.domain.WarehouseEntity;
+import com.stockpilot.masterdata.warehouse.mapper.WarehouseMapper;
+import com.stockpilot.shared.exception.BusinessException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class MasterDataReferenceApplicationServiceTest {
     private WarehouseMapper warehouses;
@@ -32,33 +32,33 @@ class MasterDataReferenceApplicationServiceTest {
 
     @Test
     void rejectsMissingWarehouseLocationAndSku() {
-        assertThrows(BusinessException.class,
-                () -> service.requireEnabledInventoryDimension(1, 2, 3));
+        assertThrows(
+                BusinessException.class, () -> service.requireEnabledInventoryDimension(1, 2, 3));
 
         when(warehouses.selectById(1L)).thenReturn(warehouse(MasterDataStatus.ENABLED));
-        assertThrows(BusinessException.class,
-                () -> service.requireEnabledInventoryDimension(1, 2, 3));
+        assertThrows(
+                BusinessException.class, () -> service.requireEnabledInventoryDimension(1, 2, 3));
 
         when(locations.selectById(2L)).thenReturn(location(1L, MasterDataStatus.ENABLED));
-        assertThrows(BusinessException.class,
-                () -> service.requireEnabledInventoryDimension(1, 2, 3));
+        assertThrows(
+                BusinessException.class, () -> service.requireEnabledInventoryDimension(1, 2, 3));
     }
 
     @Test
     void rejectsDisabledWarehouseLocationAndSku() {
         when(warehouses.selectById(1L)).thenReturn(warehouse(MasterDataStatus.DISABLED));
-        assertThrows(BusinessException.class,
-                () -> service.requireEnabledInventoryDimension(1, 2, 3));
+        assertThrows(
+                BusinessException.class, () -> service.requireEnabledInventoryDimension(1, 2, 3));
 
         when(warehouses.selectById(1L)).thenReturn(warehouse(MasterDataStatus.ENABLED));
         when(locations.selectById(2L)).thenReturn(location(1L, MasterDataStatus.DISABLED));
-        assertThrows(BusinessException.class,
-                () -> service.requireEnabledInventoryDimension(1, 2, 3));
+        assertThrows(
+                BusinessException.class, () -> service.requireEnabledInventoryDimension(1, 2, 3));
 
         when(locations.selectById(2L)).thenReturn(location(1L, MasterDataStatus.ENABLED));
         when(skus.selectById(3L)).thenReturn(sku(MasterDataStatus.DISABLED));
-        assertThrows(BusinessException.class,
-                () -> service.requireEnabledInventoryDimension(1, 2, 3));
+        assertThrows(
+                BusinessException.class, () -> service.requireEnabledInventoryDimension(1, 2, 3));
     }
 
     private WarehouseEntity warehouse(MasterDataStatus status) {

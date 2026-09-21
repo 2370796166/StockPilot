@@ -1,0 +1,193 @@
+<script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  createRole,
+  listPermissions,
+  listRoles,
+  setRolePermissions,
+  setRoleStatus,
+  updateRole,
+} from '@/modules/security/api'
+import PermissionGate from '@/shared/components/PermissionGate.vue'
+import StatusTag from '@/shared/components/StatusTag.vue'
+import type { PermissionRecord, RoleRecord } from '@/modules/security/types'
+import type { DataStatus } from '@/shared/types/api'
+const loading = ref(false),
+  roles = ref<RoleRecord[]>([]),
+  permissions = ref<PermissionRecord[]>([]),
+  dialog = ref(false),
+  grantDialog = ref(false),
+  saving = ref(false),
+  editing = ref<RoleRecord | null>(null),
+  granting = ref<RoleRecord | null>(null),
+  ids = ref<number[]>([])
+const form = reactive({ code: '', name: '' })
+async function load() {
+  loading.value = true
+  try {
+    roles.value = await listRoles()
+  } finally {
+    loading.value = false
+  }
+}
+function create() {
+  editing.value = null
+  Object.assign(form, { code: '', name: '' })
+  dialog.value = true
+}
+function edit(r: RoleRecord) {
+  editing.value = r
+  Object.assign(form, { code: r.code, name: r.name })
+  dialog.value = true
+}
+async function save() {
+  if (!form.name.trim() || (!editing.value && !form.code.match(/^[A-Z][A-Z0-9_]{1,63}$/))) {
+    ElMessage.warning('请检查角色编码和名称')
+    return
+  }
+  saving.value = true
+  try {
+    if (editing.value) await updateRole(editing.value.id, { name: form.name, version: editing.value.version })
+    else await createRole(form)
+    dialog.value = false
+    ElMessage.success('角色已保存')
+    await load()
+  } finally {
+    saving.value = false
+  }
+}
+async function status(r: RoleRecord) {
+  const next: DataStatus = r.status === 'ENABLED' ? 'DISABLED' : 'ENABLED'
+  try {
+    await ElMessageBox.confirm(`确认变更角色 ${r.code} 状态？`, '确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  await setRoleStatus(r.id, next, r.version)
+  await load()
+}
+async function grant(r: RoleRecord) {
+  granting.value = r
+  ids.value = [...r.permissionIds]
+  if (!permissions.value.length) permissions.value = await listPermissions()
+  grantDialog.value = true
+}
+async function savePermissions() {
+  if (!granting.value) return
+  saving.value = true
+  try {
+    await setRolePermissions(granting.value.id, ids.value)
+    grantDialog.value = false
+    ElMessage.success('权限已更新')
+    await load()
+  } finally {
+    saving.value = false
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-stack">
+    <div class="page-heading">
+      <div>
+        <p class="eyebrow">系统管理</p>
+        <h1>角色管理</h1>
+        <p>维护角色及其权限集合</p>
+      </div>
+      <PermissionGate authority="SECURITY_ROLE_WRITE"
+        ><el-button
+          type="primary"
+          @click="create"
+          >新增角色</el-button
+        ></PermissionGate
+      >
+    </div>
+    <el-card
+      shadow="never"
+      class="table-card"
+      ><el-table
+        v-loading="loading"
+        :data="roles"
+        ><el-table-column
+          prop="code"
+          label="角色编码"
+        /><el-table-column
+          prop="name"
+          label="角色名称"
+        /><el-table-column label="状态"
+          ><template #default="s"><StatusTag :status="s.row.status" /></template></el-table-column
+        ><el-table-column label="权限数"
+          ><template #default="s">{{ s.row.permissionIds.length }}</template></el-table-column
+        ><el-table-column
+          label="操作"
+          width="220"
+          ><template #default="s"
+            ><PermissionGate authority="SECURITY_ROLE_WRITE"
+              ><el-button
+                link
+                type="primary"
+                @click="edit(s.row)"
+                >编辑</el-button
+              ><el-button
+                link
+                type="danger"
+                @click="status(s.row)"
+                >{{ s.row.status === 'ENABLED' ? '停用' : '启用' }}</el-button
+              ></PermissionGate
+            ><PermissionGate authority="SECURITY_GRANT"
+              ><el-button
+                link
+                type="primary"
+                @click="grant(s.row)"
+                >配置权限</el-button
+              ></PermissionGate
+            ></template
+          ></el-table-column
+        ></el-table
+      ></el-card
+    ><el-dialog
+      v-model="dialog"
+      :title="editing ? '编辑角色' : '新增角色'"
+      width="480px"
+      ><el-form label-position="top"
+        ><el-form-item label="角色编码"
+          ><el-input
+            v-model="form.code"
+            :disabled="!!editing" /></el-form-item
+        ><el-form-item label="角色名称"><el-input v-model="form.name" /></el-form-item></el-form
+      ><template #footer
+        ><el-button @click="dialog = false">取消</el-button
+        ><el-button
+          type="primary"
+          :loading="saving"
+          @click="save"
+          >保存</el-button
+        ></template
+      ></el-dialog
+    ><el-dialog
+      v-model="grantDialog"
+      title="配置角色权限"
+      width="720px"
+      ><el-checkbox-group
+        v-model="ids"
+        class="permission-grid"
+        ><el-checkbox
+          v-for="p in permissions"
+          :key="p.id"
+          :value="p.id"
+          :disabled="p.status !== 'ENABLED'"
+          >{{ p.name }}</el-checkbox
+        ></el-checkbox-group
+      ><template #footer
+        ><el-button @click="grantDialog = false">取消</el-button
+        ><el-button
+          type="primary"
+          :loading="saving"
+          @click="savePermissions"
+          >保存授权</el-button
+        ></template
+      ></el-dialog
+    >
+  </div>
+</template>

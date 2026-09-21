@@ -1,7 +1,6 @@
 package com.stockpilot.inventory.vo;
 
 import com.stockpilot.inventory.domain.InventoryBusinessType;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -30,5 +29,4 @@ public record InventoryLedgerVO(
         String adjustmentReason,
         Long operatorId,
         String operatorName,
-        LocalDateTime occurredAt) {
-}
+        LocalDateTime occurredAt) {}

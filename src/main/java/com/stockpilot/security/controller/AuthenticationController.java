@@ -1,3 +1,31 @@
 package com.stockpilot.security.controller;
-import com.stockpilot.common.api.ApiResponse;import com.stockpilot.security.application.AuthenticationApplicationService;import com.stockpilot.security.auth.StockPilotPrincipal;import com.stockpilot.security.request.SecurityRequests;import com.stockpilot.security.vo.SecurityVO;import jakarta.validation.Valid;import org.springframework.security.core.annotation.AuthenticationPrincipal;import org.springframework.web.bind.annotation.*;
-@RestController @RequestMapping("/api/auth") public class AuthenticationController {private final AuthenticationApplicationService service;public AuthenticationController(AuthenticationApplicationService s){service=s;}@PostMapping("/login")public ApiResponse<SecurityVO.Token> login(@Valid @RequestBody SecurityRequests.Login r){return ApiResponse.success(service.login(r));}@GetMapping("/me")public ApiResponse<SecurityVO.CurrentUser> current(@AuthenticationPrincipal StockPilotPrincipal principal){return ApiResponse.success(service.current(principal));}}
+
+import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.security.request.SecurityRequests;
+import com.stockpilot.security.service.AuthenticationApplicationService;
+import com.stockpilot.security.vo.SecurityVO;
+import com.stockpilot.shared.api.ApiResponse;
+import jakarta.validation.Valid;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthenticationController {
+    private final AuthenticationApplicationService authenticationService;
+
+    public AuthenticationController(AuthenticationApplicationService authenticationService) {
+        this.authenticationService = authenticationService;
+    }
+
+    @PostMapping("/login")
+    public ApiResponse<SecurityVO.Token> login(@Valid @RequestBody SecurityRequests.Login r) {
+        return ApiResponse.success(authenticationService.login(r));
+    }
+
+    @GetMapping("/me")
+    public ApiResponse<SecurityVO.CurrentUser> current(
+            @AuthenticationPrincipal StockPilotPrincipal principal) {
+        return ApiResponse.success(authenticationService.current(principal));
+    }
+}

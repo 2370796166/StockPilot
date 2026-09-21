@@ -1,14 +1,11 @@
 package com.stockpilot.inventory.domain;
 
-import com.stockpilot.common.exception.BusinessException;
 import com.stockpilot.inventory.api.InventoryErrorCode;
-
+import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 
 public record InventoryQuantityChange(
-        BigDecimal actualChange,
-        BigDecimal availableChange,
-        BigDecimal frozenChange) {
+        BigDecimal actualChange, BigDecimal availableChange, BigDecimal frozenChange) {
 
     public InventoryQuantityChange {
         if (actualChange == null || availableChange == null || frozenChange == null) {
@@ -21,8 +18,8 @@ public record InventoryQuantityChange(
         availableChange = availableChange.setScale(4);
         frozenChange = frozenChange.setScale(4);
         if (actualChange.compareTo(availableChange.add(frozenChange)) != 0) {
-            throw new BusinessException(InventoryErrorCode.INVARIANT_VIOLATION,
-                    "库存变化量必须保持实际量等于可用量与冻结量之和");
+            throw new BusinessException(
+                    InventoryErrorCode.INVARIANT_VIOLATION, "库存变化量必须保持实际量等于可用量与冻结量之和");
         }
     }
 

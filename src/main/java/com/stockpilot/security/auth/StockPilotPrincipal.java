@@ -1,2 +1,3 @@
 package com.stockpilot.security.auth;
-public record StockPilotPrincipal(Long userId,String username) {}
+
+public record StockPilotPrincipal(Long userId, String username) {}

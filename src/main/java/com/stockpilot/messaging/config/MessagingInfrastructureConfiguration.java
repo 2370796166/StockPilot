@@ -11,10 +11,10 @@ import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
-import org.springframework.amqp.rabbit.retry.RepublishMessageRecovererWithConfirms;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.amqp.rabbit.retry.RepublishMessageRecovererWithConfirms;
 import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -40,13 +40,15 @@ public class MessagingInfrastructureConfiguration {
 
         @Bean
         Binding purchaseCompletionBinding(Queue completionQueue, TopicExchange businessExchange) {
-            return BindingBuilder.bind(completionQueue).to(businessExchange)
+            return BindingBuilder.bind(completionQueue)
+                    .to(businessExchange)
                     .with(BusinessEventNames.PURCHASE_RECEIPT_ROUTING_KEY);
         }
 
         @Bean
         Binding salesCompletionBinding(Queue completionQueue, TopicExchange businessExchange) {
-            return BindingBuilder.bind(completionQueue).to(businessExchange)
+            return BindingBuilder.bind(completionQueue)
+                    .to(businessExchange)
                     .with(BusinessEventNames.SALES_OUTBOUND_ROUTING_KEY);
         }
 
@@ -61,18 +63,24 @@ public class MessagingInfrastructureConfiguration {
         }
 
         @Bean
-        Binding deadLetterBinding(Queue deadLetterQueue, DirectExchange deadLetterExchange,
-                                  MessagingProperties properties) {
-            return BindingBuilder.bind(deadLetterQueue).to(deadLetterExchange)
+        Binding deadLetterBinding(
+                Queue deadLetterQueue,
+                DirectExchange deadLetterExchange,
+                MessagingProperties properties) {
+            return BindingBuilder.bind(deadLetterQueue)
+                    .to(deadLetterExchange)
                     .with(properties.getDeadLetterRoutingKey());
         }
 
         @Bean
         RepublishMessageRecovererWithConfirms completionRecoverer(
                 RabbitTemplate rabbitTemplate, MessagingProperties properties) {
-            RepublishMessageRecovererWithConfirms recoverer = new RepublishMessageRecovererWithConfirms(
-                    rabbitTemplate, properties.getDeadLetterExchange(), properties.getDeadLetterRoutingKey(),
-                    CachingConnectionFactory.ConfirmType.CORRELATED);
+            RepublishMessageRecovererWithConfirms recoverer =
+                    new RepublishMessageRecovererWithConfirms(
+                            rabbitTemplate,
+                            properties.getDeadLetterExchange(),
+                            properties.getDeadLetterRoutingKey(),
+                            CachingConnectionFactory.ConfirmType.CORRELATED);
             recoverer.setConfirmTimeout(properties.getPublisherConfirmTimeout().toMillis());
             return recoverer;
         }
@@ -83,7 +91,9 @@ public class MessagingInfrastructureConfiguration {
                 MessagingProperties properties) {
             return RetryInterceptorBuilder.stateless()
                     .maxAttempts(properties.getConsumerMaxAttempts())
-                    .backOffOptions(properties.getConsumerInitialBackoff().toMillis(), 2.0,
+                    .backOffOptions(
+                            properties.getConsumerInitialBackoff().toMillis(),
+                            2.0,
                             properties.getConsumerMaxBackoff().toMillis())
                     .recoverer(completionRecoverer)
                     .build();
@@ -94,10 +104,12 @@ public class MessagingInfrastructureConfiguration {
                 SimpleRabbitListenerContainerFactoryConfigurer configurer,
                 org.springframework.amqp.rabbit.connection.ConnectionFactory connectionFactory,
                 Advice completionRetryAdvice) {
-            SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+            SimpleRabbitListenerContainerFactory factory =
+                    new SimpleRabbitListenerContainerFactory();
             configurer.configure(factory, connectionFactory);
             factory.setAdviceChain(completionRetryAdvice);
-            // A confirmed DLQ republish ends the retry interceptor normally. If the DLQ publish itself
+            // A confirmed DLQ republish ends the retry interceptor normally. If the DLQ publish
+            // itself
             // fails, requeue the original message instead of discarding the last recoverable copy.
             factory.setDefaultRequeueRejected(true);
             factory.setConcurrentConsumers(1);
@@ -109,7 +121,8 @@ public class MessagingInfrastructureConfiguration {
         SimpleRabbitListenerContainerFactory deadLetterRabbitListenerContainerFactory(
                 SimpleRabbitListenerContainerFactoryConfigurer configurer,
                 org.springframework.amqp.rabbit.connection.ConnectionFactory connectionFactory) {
-            SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+            SimpleRabbitListenerContainerFactory factory =
+                    new SimpleRabbitListenerContainerFactory();
             configurer.configure(factory, connectionFactory);
             factory.setDefaultRequeueRejected(true);
             factory.setConcurrentConsumers(1);
@@ -118,11 +131,12 @@ public class MessagingInfrastructureConfiguration {
         }
 
         @Bean
-        RabbitTemplateMandatoryCustomizer rabbitTemplateMandatoryCustomizer(RabbitTemplate rabbitTemplate) {
+        RabbitTemplateMandatoryCustomizer rabbitTemplateMandatoryCustomizer(
+                RabbitTemplate rabbitTemplate) {
             rabbitTemplate.setMandatory(true);
             return new RabbitTemplateMandatoryCustomizer();
         }
     }
 
-    static final class RabbitTemplateMandatoryCustomizer { }
+    static final class RabbitTemplateMandatoryCustomizer {}
 }

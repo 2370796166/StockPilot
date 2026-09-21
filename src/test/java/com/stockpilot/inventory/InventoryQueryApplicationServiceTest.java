@@ -1,31 +1,31 @@
 package com.stockpilot.inventory;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.stockpilot.inventory.application.InventoryQueryApplicationService;
-import com.stockpilot.inventory.domain.InventoryBalanceEntity;
-import com.stockpilot.inventory.domain.InventoryBusinessType;
-import com.stockpilot.inventory.domain.InventoryLedgerEntity;
-import com.stockpilot.inventory.infrastructure.mapper.InventoryBalanceMapper;
-import com.stockpilot.inventory.infrastructure.mapper.InventoryLedgerMapper;
-import com.stockpilot.inventory.request.InventoryBalancePageQuery;
-import com.stockpilot.inventory.request.InventoryLedgerPageQuery;
-import org.junit.jupiter.api.Test;
-
-import java.math.BigDecimal;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.stockpilot.inventory.domain.InventoryBalanceEntity;
+import com.stockpilot.inventory.domain.InventoryBusinessType;
+import com.stockpilot.inventory.domain.InventoryLedgerEntity;
+import com.stockpilot.inventory.mapper.InventoryBalanceMapper;
+import com.stockpilot.inventory.mapper.InventoryLedgerMapper;
+import com.stockpilot.inventory.request.InventoryBalancePageQuery;
+import com.stockpilot.inventory.request.InventoryLedgerPageQuery;
+import com.stockpilot.inventory.service.InventoryQueryApplicationService;
+import java.math.BigDecimal;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
 class InventoryQueryApplicationServiceTest {
     @Test
     void balanceAndLedgerQueriesReturnPageMetadata() {
         InventoryBalanceMapper balances = mock(InventoryBalanceMapper.class);
         InventoryLedgerMapper ledgers = mock(InventoryLedgerMapper.class);
-        InventoryQueryApplicationService service = new InventoryQueryApplicationService(balances, ledgers);
+        InventoryQueryApplicationService service =
+                new InventoryQueryApplicationService(balances, ledgers);
 
         InventoryBalancePageQuery balanceQuery = new InventoryBalancePageQuery();
         balanceQuery.setPage(2);
@@ -47,7 +47,8 @@ class InventoryQueryApplicationServiceTest {
         assertEquals(10, balancesResult.size());
         assertEquals(1, balancesResult.records().size());
         assertEquals(1, ledgersResult.total());
-        assertEquals(InventoryBusinessType.INITIALIZE, ledgersResult.records().get(0).businessType());
+        assertEquals(
+                InventoryBusinessType.INITIALIZE, ledgersResult.records().get(0).businessType());
     }
 
     private InventoryBalanceEntity balance() {

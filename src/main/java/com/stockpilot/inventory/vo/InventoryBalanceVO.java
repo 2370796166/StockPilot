@@ -13,5 +13,4 @@ public record InventoryBalanceVO(
         BigDecimal frozenQuantity,
         Integer version,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt) {
-}
+        LocalDateTime updatedAt) {}

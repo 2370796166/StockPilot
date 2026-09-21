@@ -1,2 +1,6 @@
 package com.stockpilot.security.domain;
-public enum SecurityStatus { ENABLED, DISABLED }
+
+public enum SecurityStatus {
+    ENABLED,
+    DISABLED
+}

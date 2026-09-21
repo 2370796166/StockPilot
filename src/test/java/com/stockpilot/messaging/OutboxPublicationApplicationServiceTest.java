@@ -1,15 +1,5 @@
 package com.stockpilot.messaging;
 
-import com.stockpilot.messaging.application.OutboxPublicationApplicationService;
-import com.stockpilot.messaging.application.OutboxTransport;
-import com.stockpilot.messaging.config.MessagingProperties;
-import com.stockpilot.messaging.domain.BusinessEventNames;
-import com.stockpilot.messaging.domain.OutboxMessageEntity;
-import com.stockpilot.messaging.infrastructure.mapper.FailureRecordMapper;
-import com.stockpilot.messaging.infrastructure.mapper.MessageTraceMapper;
-import com.stockpilot.messaging.infrastructure.mapper.OutboxMessageMapper;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,6 +9,16 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.stockpilot.messaging.config.MessagingProperties;
+import com.stockpilot.messaging.domain.BusinessEventNames;
+import com.stockpilot.messaging.domain.OutboxMessageEntity;
+import com.stockpilot.messaging.mapper.FailureRecordMapper;
+import com.stockpilot.messaging.mapper.MessageTraceMapper;
+import com.stockpilot.messaging.mapper.OutboxMessageMapper;
+import com.stockpilot.messaging.service.OutboxPublicationApplicationService;
+import com.stockpilot.messaging.service.OutboxTransport;
+import org.junit.jupiter.api.Test;
+
 class OutboxPublicationApplicationServiceTest {
     @Test
     void publisherConfirmMarksMessagePublished() throws Exception {
@@ -26,28 +26,51 @@ class OutboxPublicationApplicationServiceTest {
         assertTrue(fixture.service.publishNextDue());
         verify(fixture.transport).publish(fixture.message);
         verify(fixture.outbox).markPublished(fixture.message.getMessageId());
-        verify(fixture.failures, never()).upsert(any(), any(), any(Integer.class), any(), any(), any(), any(), any());
+        verify(fixture.failures, never())
+                .upsert(any(), any(), any(Integer.class), any(), any(), any(), any(), any());
     }
 
     @Test
-    void brokerUnavailableSchedulesBoundedRetryWithoutFailingBusinessTransaction() throws Exception {
+    void brokerUnavailableSchedulesBoundedRetryWithoutFailingBusinessTransaction()
+            throws Exception {
         Fixture fixture = new Fixture(0, 3);
-        doThrow(new IllegalStateException("broker unavailable")).when(fixture.transport).publish(fixture.message);
+        doThrow(new IllegalStateException("broker unavailable"))
+                .when(fixture.transport)
+                .publish(fixture.message);
         assertTrue(fixture.service.publishNextDue());
-        verify(fixture.outbox).markFailure(eq(fixture.message.getMessageId()), eq("PENDING"), any(),
-                eq("broker unavailable"));
-        verify(fixture.failures, never()).upsert(any(), any(), any(Integer.class), any(), any(), any(), any(), any());
+        verify(fixture.outbox)
+                .markFailure(
+                        eq(fixture.message.getMessageId()),
+                        eq("PENDING"),
+                        any(),
+                        eq("broker unavailable"));
+        verify(fixture.failures, never())
+                .upsert(any(), any(), any(Integer.class), any(), any(), any(), any(), any());
     }
 
     @Test
     void exhaustedPublisherAttemptsCreateOperatorVisibleFailure() throws Exception {
         Fixture fixture = new Fixture(2, 3);
-        doThrow(new IllegalStateException("publisher nack")).when(fixture.transport).publish(fixture.message);
+        doThrow(new IllegalStateException("publisher nack"))
+                .when(fixture.transport)
+                .publish(fixture.message);
         assertTrue(fixture.service.publishNextDue());
-        verify(fixture.outbox).markFailure(eq(fixture.message.getMessageId()), eq("FAILED"), any(),
-                eq("publisher nack"));
-        verify(fixture.failures).upsert(fixture.message.getMessageId(), fixture.message.getEventName(), 1,
-                fixture.message.getBusinessNo(), "PUBLISH", "outbox-publisher", "{}", "publisher nack");
+        verify(fixture.outbox)
+                .markFailure(
+                        eq(fixture.message.getMessageId()),
+                        eq("FAILED"),
+                        any(),
+                        eq("publisher nack"));
+        verify(fixture.failures)
+                .upsert(
+                        fixture.message.getMessageId(),
+                        fixture.message.getEventName(),
+                        1,
+                        fixture.message.getBusinessNo(),
+                        "PUBLISH",
+                        "outbox-publisher",
+                        "{}",
+                        "publisher nack");
     }
 
     private static final class Fixture {
@@ -65,7 +88,9 @@ class OutboxPublicationApplicationServiceTest {
             when(outbox.markPublished(message.getMessageId())).thenReturn(1);
             MessagingProperties properties = new MessagingProperties();
             properties.setPublisherMaxAttempts(maximum);
-            service = new OutboxPublicationApplicationService(outbox, traces, failures, transport, properties);
+            service =
+                    new OutboxPublicationApplicationService(
+                            outbox, traces, failures, transport, properties);
         }
 
         private static OutboxMessageEntity message() {

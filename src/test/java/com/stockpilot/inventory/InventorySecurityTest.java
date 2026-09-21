@@ -1,26 +1,5 @@
 package com.stockpilot.inventory;
 
-import com.stockpilot.inventory.application.InventoryQueryApplicationService;
-import com.stockpilot.inventory.controller.InventoryQueryController;
-import com.stockpilot.inventory.infrastructure.mapper.InventoryBalanceMapper;
-import com.stockpilot.inventory.infrastructure.mapper.InventoryLedgerMapper;
-import com.stockpilot.masterdata.vo.PageResult;
-import com.stockpilot.security.auth.DatabaseUserDetailsService;
-import com.stockpilot.security.auth.JwtAuthenticationFilter;
-import com.stockpilot.security.auth.JwtService;
-import com.stockpilot.security.config.SecurityConfig;
-import com.stockpilot.security.domain.SecurityStatus;
-import com.stockpilot.security.domain.UserEntity;
-import com.stockpilot.security.infrastructure.mapper.UserMapper;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.web.servlet.MockMvc;
-
-import java.util.List;
-
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -28,12 +7,38 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(value = InventoryQueryController.class, properties = {
-        "stockpilot.security.jwt-secret=01234567890123456789012345678901",
-        "stockpilot.security.access-token-minutes=60"
+import com.stockpilot.inventory.controller.InventoryQueryController;
+import com.stockpilot.inventory.mapper.InventoryBalanceMapper;
+import com.stockpilot.inventory.mapper.InventoryLedgerMapper;
+import com.stockpilot.inventory.service.InventoryQueryApplicationService;
+import com.stockpilot.security.auth.DatabaseUserDetailsService;
+import com.stockpilot.security.auth.JwtAuthenticationFilter;
+import com.stockpilot.security.auth.JwtService;
+import com.stockpilot.security.config.SecurityConfig;
+import com.stockpilot.security.domain.SecurityStatus;
+import com.stockpilot.security.domain.UserEntity;
+import com.stockpilot.security.mapper.UserMapper;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
+import org.springframework.test.web.servlet.MockMvc;
+
+@WebMvcTest(
+        value = InventoryQueryController.class,
+        properties = {
+            "stockpilot.security.jwt-secret=01234567890123456789012345678901",
+            "stockpilot.security.access-token-minutes=60"
+        })
+@Import({
+    SecurityConfig.class,
+    JwtAuthenticationFilter.class,
+    JwtService.class,
+    DatabaseUserDetailsService.class,
+    InventoryQueryApplicationService.class
 })
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtService.class,
-        DatabaseUserDetailsService.class, InventoryQueryApplicationService.class})
 class InventorySecurityTest {
     @Autowired private MockMvc mvc;
     @Autowired private JwtService jwt;
@@ -74,8 +79,9 @@ class InventorySecurityTest {
     @Test
     void paginationParametersAreValidated() throws Exception {
         String token = tokenWith(List.of("INVENTORY_READ"));
-        mvc.perform(get("/api/inventory/balances?page=0&size=101")
-                        .header("Authorization", "Bearer " + token))
+        mvc.perform(
+                        get("/api/inventory/balances?page=0&size=101")
+                                .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMMON_400"));
     }

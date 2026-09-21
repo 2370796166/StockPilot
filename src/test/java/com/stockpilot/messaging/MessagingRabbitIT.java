@@ -1,18 +1,33 @@
 package com.stockpilot.messaging;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.StockPilotApplication;
-import com.stockpilot.alert.application.LowStockEventApplicationService;
-import com.stockpilot.messaging.application.OutboxPublicationApplicationService;
+import com.stockpilot.alert.service.LowStockEventApplicationService;
 import com.stockpilot.messaging.config.MessagingProperties;
 import com.stockpilot.messaging.domain.BusinessEventNames;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
+import com.stockpilot.messaging.service.OutboxPublicationApplicationService;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.DirectExchange;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -27,28 +42,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.support.TestPropertySourceUtils;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
-import java.util.function.BooleanSupplier;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 @SpringBootTest(classes = MessagingRabbitIT.TestApplication.class)
 @ContextConfiguration(initializers = MessagingRabbitIT.InfrastructureInitializer.class)
 class MessagingRabbitIT {
     private static final String DATABASE = "stockpilot_rabbit_it";
-    private static final String ADMIN_URL = "jdbc:mysql://localhost:3307/?allowPublicKeyRetrieval=true&useSSL=false";
+    private static final String ADMIN_URL =
+            "jdbc:mysql://localhost:3307/?allowPublicKeyRetrieval=true&useSSL=false";
     private static final String ADMIN_USER = "root";
     private static final String ADMIN_PASSWORD = "root_dev_only";
 
@@ -57,8 +56,13 @@ class MessagingRabbitIT {
     @Autowired RabbitAdmin rabbitAdmin;
     @Autowired MessagingProperties properties;
     @Autowired OutboxPublicationApplicationService publications;
-    @Autowired @Qualifier("deadLetterExchange") DirectExchange deadLetterExchange;
-    @Autowired @Qualifier("deadLetterBinding") Binding deadLetterBinding;
+
+    @Autowired
+    @Qualifier("deadLetterExchange") DirectExchange deadLetterExchange;
+
+    @Autowired
+    @Qualifier("deadLetterBinding") Binding deadLetterBinding;
+
     @MockBean LowStockEventApplicationService lowStock;
 
     @BeforeEach
@@ -75,8 +79,9 @@ class MessagingRabbitIT {
 
     @AfterAll
     static void dropDatabase() throws Exception {
-        try (Connection connection = DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
-             Statement statement = connection.createStatement()) {
+        try (Connection connection =
+                        DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
+                Statement statement = connection.createStatement()) {
             statement.execute("DROP DATABASE IF EXISTS " + DATABASE);
         }
     }
@@ -88,8 +93,12 @@ class MessagingRabbitIT {
         assertTrue(publications.publishNextDue());
 
         verify(lowStock, org.mockito.Mockito.timeout(10_000)).handle(event);
-        assertEquals("PUBLISHED", jdbc.queryForObject(
-                "SELECT status FROM async_outbox_message WHERE message_id=?", String.class, event.messageId()));
+        assertEquals(
+                "PUBLISHED",
+                jdbc.queryForObject(
+                        "SELECT status FROM async_outbox_message WHERE message_id=?",
+                        String.class,
+                        event.messageId()));
     }
 
     @Test
@@ -102,8 +111,14 @@ class MessagingRabbitIT {
         assertTrue(publications.publishNextDue());
 
         verify(lowStock, org.mockito.Mockito.timeout(15_000).times(3)).handle(event);
-        await(() -> count("SELECT COUNT(*) FROM async_message_trace WHERE message_id='" + event.messageId()
-                + "' AND stage='CONSUME_RETRY'") >= 2, 10_000);
+        await(
+                () ->
+                        count(
+                                        "SELECT COUNT(*) FROM async_message_trace WHERE message_id='"
+                                                + event.messageId()
+                                                + "' AND stage='CONSUME_RETRY'")
+                                >= 2,
+                10_000);
     }
 
     @Test
@@ -113,10 +128,20 @@ class MessagingRabbitIT {
         assertTrue(publications.publishNextDue());
 
         verify(lowStock, org.mockito.Mockito.timeout(15_000).times(3)).handle(event);
-        await(() -> count("SELECT COUNT(*) FROM async_failure_record WHERE message_id='" + event.messageId()
-                + "' AND failure_stage='CONSUME'") == 1, 15_000);
-        assertEquals(1, count("SELECT COUNT(*) FROM async_message_trace WHERE message_id='" + event.messageId()
-                + "' AND stage='DEAD_LETTERED'"));
+        await(
+                () ->
+                        count(
+                                        "SELECT COUNT(*) FROM async_failure_record WHERE message_id='"
+                                                + event.messageId()
+                                                + "' AND failure_stage='CONSUME'")
+                                == 1,
+                15_000);
+        assertEquals(
+                1,
+                count(
+                        "SELECT COUNT(*) FROM async_message_trace WHERE message_id='"
+                                + event.messageId()
+                                + "' AND stage='DEAD_LETTERED'"));
     }
 
     @Test
@@ -127,44 +152,82 @@ class MessagingRabbitIT {
 
         assertTrue(publications.publishNextDue());
         verify(lowStock, org.mockito.Mockito.timeout(15_000).atLeast(6)).handle(event);
-        assertEquals(0, count("SELECT COUNT(*) FROM async_failure_record WHERE message_id='" + event.messageId() + "'"));
+        assertEquals(
+                0,
+                count(
+                        "SELECT COUNT(*) FROM async_failure_record WHERE message_id='"
+                                + event.messageId()
+                                + "'"));
 
         rabbitAdmin.declareExchange(deadLetterExchange);
         rabbitAdmin.declareBinding(deadLetterBinding);
-        await(() -> count("SELECT COUNT(*) FROM async_failure_record WHERE message_id='" + event.messageId()
-                + "' AND failure_stage='CONSUME'") == 1, 15_000);
+        await(
+                () ->
+                        count(
+                                        "SELECT COUNT(*) FROM async_failure_record WHERE message_id='"
+                                                + event.messageId()
+                                                + "' AND failure_stage='CONSUME'")
+                                == 1,
+                15_000);
     }
 
     @Test
-    void unsupportedEventVersionIsRejectedAndRecordedInsteadOfCallingOldConsumer() throws Exception {
-        CompletionBusinessEvent event = new CompletionBusinessEvent(
-                UUID.randomUUID().toString(), BusinessEventNames.SALES_OUTBOUND_COMPLETED, 2,
-                "SO-RABBIT-V2", Instant.now(), new CompletionBusinessEvent.CompletionData(
-                1L, 2L, List.of(new CompletionBusinessEvent.InventoryDimension(3L, 4L))));
+    void unsupportedEventVersionIsRejectedAndRecordedInsteadOfCallingOldConsumer()
+            throws Exception {
+        CompletionBusinessEvent event =
+                new CompletionBusinessEvent(
+                        UUID.randomUUID().toString(),
+                        BusinessEventNames.SALES_OUTBOUND_COMPLETED,
+                        2,
+                        "SO-RABBIT-V2",
+                        Instant.now(),
+                        new CompletionBusinessEvent.CompletionData(
+                                1L,
+                                2L,
+                                List.of(new CompletionBusinessEvent.InventoryDimension(3L, 4L))));
         insertOutbox(event);
 
         assertTrue(publications.publishNextDue());
-        await(() -> count("SELECT COUNT(*) FROM async_failure_record WHERE message_id='" + event.messageId()
-                + "' AND event_version=2 AND failure_stage='CONSUME'") == 1, 15_000);
+        await(
+                () ->
+                        count(
+                                        "SELECT COUNT(*) FROM async_failure_record WHERE message_id='"
+                                                + event.messageId()
+                                                + "' AND event_version=2 AND failure_stage='CONSUME'")
+                                == 1,
+                15_000);
         verify(lowStock, never()).handle(any());
     }
 
     private CompletionBusinessEvent insertOutbox(String businessNo) throws Exception {
-        CompletionBusinessEvent event = new CompletionBusinessEvent(
-                UUID.randomUUID().toString(), BusinessEventNames.SALES_OUTBOUND_COMPLETED, 1,
-                businessNo, Instant.now(), new CompletionBusinessEvent.CompletionData(
-                1L, 2L, List.of(new CompletionBusinessEvent.InventoryDimension(3L, 4L))));
+        CompletionBusinessEvent event =
+                new CompletionBusinessEvent(
+                        UUID.randomUUID().toString(),
+                        BusinessEventNames.SALES_OUTBOUND_COMPLETED,
+                        1,
+                        businessNo,
+                        Instant.now(),
+                        new CompletionBusinessEvent.CompletionData(
+                                1L,
+                                2L,
+                                List.of(new CompletionBusinessEvent.InventoryDimension(3L, 4L))));
         insertOutbox(event);
         return event;
     }
 
     private void insertOutbox(CompletionBusinessEvent event) throws Exception {
-        jdbc.update("""
+        jdbc.update(
+                """
                 INSERT INTO async_outbox_message
                   (message_id,event_name,event_version,business_no,routing_key,payload_json,status,publish_attempts,next_attempt_at)
                 VALUES (?,?,?,?,?,CAST(? AS JSON),'PENDING',0,CURRENT_TIMESTAMP(3))
-                """, event.messageId(), event.eventName(), event.eventVersion(), event.businessNo(),
-                BusinessEventNames.SALES_OUTBOUND_ROUTING_KEY, json.writeValueAsString(event));
+                """,
+                event.messageId(),
+                event.eventName(),
+                event.eventVersion(),
+                event.businessNo(),
+                BusinessEventNames.SALES_OUTBOUND_ROUTING_KEY,
+                json.writeValueAsString(event));
     }
 
     private void await(BooleanSupplier condition, long timeoutMillis) throws Exception {
@@ -176,20 +239,30 @@ class MessagingRabbitIT {
         assertTrue(condition.getAsBoolean(), "condition was not met before timeout");
     }
 
-    private int count(String sql) { return jdbc.queryForObject(sql, Integer.class); }
+    private int count(String sql) {
+        return jdbc.queryForObject(sql, Integer.class);
+    }
 
-    static class InfrastructureInitializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
+    static class InfrastructureInitializer
+            implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         @Override
         public void initialize(ConfigurableApplicationContext context) {
-            try (Connection connection = DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
-                 Statement statement = connection.createStatement()) {
+            try (Connection connection =
+                            DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
+                    Statement statement = connection.createStatement()) {
                 statement.execute("DROP DATABASE IF EXISTS " + DATABASE);
-                statement.execute("CREATE DATABASE " + DATABASE + " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
+                statement.execute(
+                        "CREATE DATABASE "
+                                + DATABASE
+                                + " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
             } catch (Exception exception) {
-                throw new IllegalStateException("Cannot prepare RabbitMQ integration-test database", exception);
+                throw new IllegalStateException(
+                        "Cannot prepare RabbitMQ integration-test database", exception);
             }
-            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/" + DATABASE
+            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
+                    context,
+                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
+                            + DATABASE
                             + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
@@ -208,8 +281,15 @@ class MessagingRabbitIT {
 
     @Configuration(proxyBeanMethods = false)
     @EnableAutoConfiguration
-    @ComponentScan(basePackages = "com.stockpilot", excludeFilters = {
-            @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = StockPilotApplication.class),
-            @ComponentScan.Filter(type = FilterType.REGEX, pattern = "com\\.stockpilot\\.security\\.TestProtectedController")})
-    static class TestApplication { }
+    @ComponentScan(
+            basePackages = "com.stockpilot",
+            excludeFilters = {
+                @ComponentScan.Filter(
+                        type = FilterType.ASSIGNABLE_TYPE,
+                        classes = StockPilotApplication.class),
+                @ComponentScan.Filter(
+                        type = FilterType.REGEX,
+                        pattern = "com\\.stockpilot\\.security\\.TestProtectedController")
+            })
+    static class TestApplication {}
 }

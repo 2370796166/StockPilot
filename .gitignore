@@ -14,3 +14,11 @@ application-local.yaml
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Local agent/development notes and generated performance artifacts
+AGENTS.md
+.agents/
+.codex/
+docs/progress.md
+docs/performance.md
+performance/

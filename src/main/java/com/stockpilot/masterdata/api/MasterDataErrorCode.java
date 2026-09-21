@@ -1,6 +1,6 @@
 package com.stockpilot.masterdata.api;
 
-import com.stockpilot.common.api.ErrorCode;
+import com.stockpilot.shared.api.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum MasterDataErrorCode implements ErrorCode {
@@ -21,7 +21,16 @@ public enum MasterDataErrorCode implements ErrorCode {
         this.message = message;
         this.status = status;
     }
-    public String code() { return code; }
-    public String message() { return message; }
-    public HttpStatus httpStatus() { return status; }
+
+    public String code() {
+        return code;
+    }
+
+    public String message() {
+        return message;
+    }
+
+    public HttpStatus httpStatus() {
+        return status;
+    }
 }

@@ -2,14 +2,47 @@
 
 StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理平台。当前包含模块化单体后端和 `frontend` 目录下的 Vue 3 管理后台。管理后台已接通登录、权限路由、基础资料、采购、销售、库存、调拨、盘点、用户和角色的真实后端接口。
 
-项目需求、架构和进度以以下文档为准：
+项目需求、架构和运行说明以以下文档为准：
 
-- `docs/requirements.md`：MVP范围和产品规则
-- `docs/architecture.md`：当前代码结构与后续模块边界
-- `docs/inventory-rules.md`：未来库存实现必须遵守的不变量
-- `docs/database.md`：实际数据库状态和待实现基线
-- `docs/rabbitmq-reliability.md`：RabbitMQ 与业务事件故障边界、补偿和生产化计划
-- `docs/progress.md`：当前验证结果和下一阶段限制
+- `docs/business/requirements.md`：MVP范围和产品规则
+- `docs/architecture/overview.md`：当前代码结构与后续模块边界
+- `docs/business/inventory-rules.md`：未来库存实现必须遵守的不变量
+- `docs/architecture/database.md`：实际数据库状态和待实现基线
+- `docs/architecture/decisions.md`：关键架构决策及取舍
+- `docs/operations/rabbitmq-reliability.md`：RabbitMQ 与业务事件故障边界、补偿和生产化计划
+- `docs/testing.md`：常规测试及基础设施集成测试说明
+
+## 项目结构
+
+```text
+StockPilot/
+├─ src/main/java/com/stockpilot/
+│  ├─ purchase/                 # 采购入库
+│  ├─ sales/                    # 销售出库
+│  ├─ inventory/                # 库存余额、流水及 count 盘点子模块
+│  ├─ transfer/                 # 仓库间调拨与在途库存
+│  ├─ masterdata/               # 仓库、库位、SKU 等基础资料及缓存设施
+│  ├─ security/                 # 认证、RBAC 和安全审计
+│  ├─ messaging/                # Outbox、RabbitMQ、重试与死信
+│  ├─ alert/                    # 安全库存预警
+│  └─ shared/                   # 统一响应、异常、配置和健康检查
+├─ frontend/src/
+│  ├─ modules/                  # 按业务能力组织的页面、API 和类型
+│  ├─ shared/                   # 跨模块组件、组合式函数、类型和工具
+│  ├─ router/                   # 权限路由
+│  ├─ layouts/                  # 页面布局
+│  └─ styles/                   # 全局样式
+├─ docs/
+│  ├─ business/                 # 产品需求和库存业务规则
+│  ├─ architecture/             # 架构、数据库和技术决策
+│  ├─ operations/               # 中间件可靠性和运维说明
+│  └─ testing.md                # 测试范围和执行方式
+├─ docker/                      # 容器初始化资源
+├─ docker-compose.yml
+└─ pom.xml
+```
+
+后端仍是单 Maven 模块、单 Spring Boot 部署单元。目录调整只强化模块边界，不引入微服务或分布式事务。
 
 ## 当前能力
 
@@ -61,7 +94,7 @@ StockPilot 是面向中小型制造或电商企业的智能仓储与库存管理
 
 安全管理接口位于 `/api/security`，包含用户、角色、权限、关联管理和审计日志查询。基础资料查询需要 `MASTER_DATA_READ`，写操作需要 `MASTER_DATA_WRITE`；用户角色和角色权限分配需要系统管理员持有的 `SECURITY_GRANT`。未明确列入安全规则的新接口默认拒绝访问。
 
-最终 MVP 采用 `ADMIN`、`OPERATOR`、`AUDITOR` 三个默认角色。Flyway `V0.3.2` 已将早期六角色种子收敛为这三个角色；角色名称不代表采购、出库等业务已经实现。具体权限基线见 `docs/requirements.md` 和 `docs/decisions.md`。
+最终 MVP 采用 `ADMIN`、`OPERATOR`、`AUDITOR` 三个默认角色。Flyway `V0.3.2` 已将早期六角色种子收敛为这三个角色；角色名称不代表采购、出库等业务已经实现。具体权限基线见 `docs/business/requirements.md` 和 `docs/architecture/decisions.md`。
 
 仓库不保存默认账号或 JWT 密钥。首次启动可临时设置 `JWT_SECRET`、`BOOTSTRAP_ADMIN_USERNAME`、`BOOTSTRAP_ADMIN_PASSWORD` 创建管理员；创建后应清除两个引导账号变量。JWT 密钥至少 32 字符并持续由部署环境提供。本阶段仅提供默认 60 分钟的 Access Token，不提供 Refresh Token。
 
@@ -231,7 +264,7 @@ npm install
 npm run dev
 ```
 
-开发服务器默认位于 `http://localhost:5173`，并将同源 `/api` 请求代理至 `http://localhost:8080`。生产交付前执行：
+开发服务器默认位于 `http://localhost:5173`，并将同源 `/api` 请求代理至 `http://localhost:8085`。生产交付前执行：
 
 ```powershell
 npm run lint
@@ -246,7 +279,7 @@ npm run build
 健康检查：
 
 ```text
-GET http://localhost:8080/api/health
+GET http://localhost:8085/api/health
 ```
 
 MySQL 正常时返回：
@@ -265,14 +298,14 @@ MySQL 正常时返回：
 
 接口文档：
 
-- Swagger UI: <http://localhost:8080/swagger-ui.html>
-- OpenAPI JSON: <http://localhost:8080/v3/api-docs>
+- Swagger UI: <http://localhost:8085/swagger-ui.html>
+- OpenAPI JSON: <http://localhost:8085/v3/api-docs>
 
 ## 配置项
 
 | 环境变量 | 默认值 | 含义 |
 |---|---|---|
-| `SERVER_PORT` | `8080` | 后端端口 |
+| `SERVER_PORT` | `8085` | 后端端口 |
 | `DB_URL` | 本地 `stockpilot` JDBC URL | 数据库地址 |
 | `DB_USERNAME` | `stockpilot` | 数据库用户 |
 | `DB_PASSWORD` | `stockpilot_dev` | 数据库密码 |
@@ -298,22 +331,33 @@ MySQL 正常时返回：
 
 ```text
 com.stockpilot
-├─ common       统一响应、错误码和异常处理
-├─ cache        Redis基础资料缓存、版本化序列化与不可用降级
-├─ config       MyBatis-Plus、OpenAPI等配置
-├─ health       健康检查的Controller、应用服务和Mapper
-├─ masterdata   仓库、库位、分类、SKU和供应商
-├─ inventory    库存余额、库存流水和内部库存变更服务
-├─ inbound      采购入库闭环
-├─ outbound     销售冻结、审核、出库和取消释放
-├─ transfer     仓库间调拨和独立在途库存
-├─ inventorycount 静态盘点、差异审核和库存调整
-├─ messaging    事务性Outbox、RabbitMQ发布/消费、重试、死信和追踪
-├─ alert        安全库存规则与低库存预警状态
-└─ security     登录、JWT、用户/角色/权限、RBAC和审计
+├─ alert/{service,mapper,domain}
+├─ inventory/{controller,service,mapper,domain,count,...}
+├─ masterdata/{controller,service,domain,warehouse,location,category,sku,supplier,...}
+├─ messaging/{service,mapper,domain,infrastructure,config}
+├─ purchase/{controller,service,mapper,domain,request,vo}
+├─ sales/{controller,service,mapper,domain,request,vo}
+├─ security/{controller,service,mapper,domain,auth,audit,config,...}
+├─ shared/{api,exception,config,health}
+└─ transfer/{controller,service,mapper,domain,request,vo}
 ```
 
-Controller 只调用应用服务，不直接调用 Mapper。采购、出库、调拨和盘点模块均通过库存应用服务修改余额。
+顶层按业务模块划分，模块内部采用 `controller → service → mapper` 调用方向。`domain` 保存实体和状态规则，`request`/`vo` 隔离接口输入输出；RabbitMQ、Redis 等外部适配器才放入 `infrastructure`。采购、出库、调拨和盘点模块均通过库存 Service 修改余额。
+
+## 代码格式
+
+后端 Java 使用 Spotless 和 Google Java Format（AOSP 风格），前端使用 Prettier；通用缩进、编码和换行规则记录在根目录 `.editorconfig`。
+
+```bash
+# 后端格式化与检查
+mvn -s .mvn/settings.xml spotless:apply
+mvn -s .mvn/settings.xml spotless:check
+
+# 前端格式化与检查
+cd frontend
+npm run format
+npm run format:check
+```
 
 ## 停止基础设施
 

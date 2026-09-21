@@ -1,6 +1,6 @@
 package com.stockpilot.transfer.api;
 
-import com.stockpilot.common.api.ErrorCode;
+import com.stockpilot.shared.api.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum StockTransferErrorCode implements ErrorCode {
@@ -15,7 +15,25 @@ public enum StockTransferErrorCode implements ErrorCode {
     ALREADY_CANCELLED("TRANSFER_409_CANCELLED", "调拨单已经取消", HttpStatus.CONFLICT),
     TRANSIT_CONFLICT("TRANSFER_409_TRANSIT", "在途记录状态冲突", HttpStatus.CONFLICT),
     PERSISTENCE_FAILURE("TRANSFER_500_PERSISTENCE", "调拨数据保存失败", HttpStatus.INTERNAL_SERVER_ERROR);
-    private final String code; private final String message; private final HttpStatus status;
-    StockTransferErrorCode(String c,String m,HttpStatus s){code=c;message=m;status=s;}
-    public String code(){return code;} public String message(){return message;} public HttpStatus httpStatus(){return status;}
+    private final String code;
+    private final String message;
+    private final HttpStatus status;
+
+    StockTransferErrorCode(String c, String m, HttpStatus s) {
+        code = c;
+        message = m;
+        status = s;
+    }
+
+    public String code() {
+        return code;
+    }
+
+    public String message() {
+        return message;
+    }
+
+    public HttpStatus httpStatus() {
+        return status;
+    }
 }

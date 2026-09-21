@@ -24,9 +24,10 @@ export default tseslint.config(
       'vue/singleline-html-element-content-newline': 'off',
       'vue/multiline-html-element-content-newline': 'off',
       'vue/html-closing-bracket-spacing': 'off',
+      'vue/html-closing-bracket-newline': 'off',
       'vue/attributes-order': 'off',
       'vue/mustache-interpolation-spacing': 'off',
-      'vue/html-indent': 'off'
+      'vue/html-indent': 'off',
     },
   },
 )

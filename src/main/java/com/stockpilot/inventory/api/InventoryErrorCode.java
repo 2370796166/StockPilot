@@ -1,6 +1,6 @@
 package com.stockpilot.inventory.api;
 
-import com.stockpilot.common.api.ErrorCode;
+import com.stockpilot.shared.api.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum InventoryErrorCode implements ErrorCode {
@@ -25,7 +25,15 @@ public enum InventoryErrorCode implements ErrorCode {
         this.status = status;
     }
 
-    public String code() { return code; }
-    public String message() { return message; }
-    public HttpStatus httpStatus() { return status; }
+    public String code() {
+        return code;
+    }
+
+    public String message() {
+        return message;
+    }
+
+    public HttpStatus httpStatus() {
+        return status;
+    }
 }

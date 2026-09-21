@@ -11,11 +11,12 @@ public record CompletionBusinessEvent(
         Instant occurredAt,
         CompletionData data) {
 
-    public record CompletionData(long documentId, long warehouseId, List<InventoryDimension> dimensions) {
+    public record CompletionData(
+            long documentId, long warehouseId, List<InventoryDimension> dimensions) {
         public CompletionData {
             dimensions = List.copyOf(dimensions);
         }
     }
 
-    public record InventoryDimension(long locationId, long skuId) { }
+    public record InventoryDimension(long locationId, long skuId) {}
 }
