@@ -5,12 +5,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 import com.stockpilot.masterdata.domain.MasterDataStatus;
-import com.stockpilot.masterdata.location.domain.WarehouseLocationEntity;
-import com.stockpilot.masterdata.location.mapper.WarehouseLocationMapper;
-import com.stockpilot.masterdata.location.request.CreateLocationRequest;
-import com.stockpilot.masterdata.location.service.WarehouseLocationApplicationService;
-import com.stockpilot.masterdata.warehouse.domain.WarehouseEntity;
-import com.stockpilot.masterdata.warehouse.mapper.WarehouseMapper;
+import com.stockpilot.masterdata.domain.WarehouseEntity;
+import com.stockpilot.masterdata.domain.WarehouseLocationEntity;
+import com.stockpilot.masterdata.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.mapper.WarehouseMapper;
+import com.stockpilot.masterdata.request.CreateLocationRequest;
+import com.stockpilot.masterdata.service.WarehouseLocationApplicationService;
 import com.stockpilot.shared.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;

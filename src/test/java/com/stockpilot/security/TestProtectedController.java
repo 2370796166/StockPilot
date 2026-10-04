@@ -1,15 +1,15 @@
 package com.stockpilot.security;
 
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 class TestProtectedController {
     @GetMapping("/api/auth/me")
-    StockPilotPrincipal current(
+    AuthenticatedActor current(
             @org.springframework.security.core.annotation.AuthenticationPrincipal
-                    StockPilotPrincipal principal) {
+                    AuthenticatedActor principal) {
         return principal;
     }
 

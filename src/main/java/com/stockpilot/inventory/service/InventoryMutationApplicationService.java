@@ -11,8 +11,6 @@ import com.stockpilot.inventory.mapper.InventoryLedgerMapper;
 import com.stockpilot.inventory.vo.InventoryBalanceVO;
 import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
 import com.stockpilot.shared.exception.BusinessException;
-import java.math.BigDecimal;
-import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -54,7 +52,7 @@ public class InventoryMutationApplicationService {
             if (balances.insert(balance) != 1) {
                 throw new BusinessException(InventoryErrorCode.CONCURRENT_MODIFICATION);
             }
-            if (ledgers.insert(initializationLedger(balance, command)) != 1) {
+            if (ledgers.insert(InventoryLedgerFactory.initialization(command)) != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
             }
         } catch (DuplicateKeyException exception) {
@@ -92,7 +90,7 @@ public class InventoryMutationApplicationService {
         }
 
         try {
-            if (ledgers.insert(changeLedger(before, after, command)) != 1) {
+            if (ledgers.insert(InventoryLedgerFactory.change(before, after, command)) != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
             }
         } catch (DuplicateKeyException exception) {
@@ -130,7 +128,7 @@ public class InventoryMutationApplicationService {
                             command.skuId(),
                             command.operatorId(),
                             command.operatorName());
-            if (ledgers.insert(initializationLedger(balance, initialize)) != 1) {
+            if (ledgers.insert(InventoryLedgerFactory.initialization(initialize)) != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
             }
         }
@@ -159,7 +157,8 @@ public class InventoryMutationApplicationService {
                         command.operatorId(),
                         command.operatorName());
         try {
-            if (ledgers.insert(changeLedger(before, after, inventoryChange)) != 1) {
+            if (ledgers.insert(InventoryLedgerFactory.change(before, after, inventoryChange))
+                    != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
             }
         } catch (DuplicateKeyException exception) {
@@ -370,27 +369,7 @@ public class InventoryMutationApplicationService {
                         saved.getAvailableQuantity(),
                         saved.getFrozenQuantity());
         InventoryLedgerEntity ledger =
-                changeLedger(
-                        before,
-                        after,
-                        new InventoryChangeCommand(
-                                command.warehouseId(),
-                                command.locationId(),
-                                command.skuId(),
-                                command.snapshotVersion(),
-                                InventoryBusinessType.INVENTORY_COUNT,
-                                command.countNo(),
-                                new InventoryQuantityChange(
-                                        after.actualQuantity().subtract(before.actualQuantity()),
-                                        after.availableQuantity()
-                                                .subtract(before.availableQuantity()),
-                                        BigDecimal.ZERO.setScale(4)),
-                                command.operatorId(),
-                                command.operatorName()));
-        ledger.setCountBookQuantity(command.snapshotActual());
-        ledger.setCountedQuantity(command.countedQuantity());
-        ledger.setDifferenceQuantity(command.countedQuantity().subtract(command.snapshotActual()));
-        ledger.setAdjustmentReason(command.reason());
+                InventoryLedgerFactory.countAdjustment(before, after, command);
         try {
             if (ledgers.insert(ledger) != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
@@ -451,7 +430,7 @@ public class InventoryMutationApplicationService {
             InventoryBalanceState after,
             InventoryChangeCommand command) {
         try {
-            if (ledgers.insert(changeLedger(before, after, command)) != 1) {
+            if (ledgers.insert(InventoryLedgerFactory.change(before, after, command)) != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
             }
         } catch (DuplicateKeyException exception) {
@@ -503,7 +482,8 @@ public class InventoryMutationApplicationService {
                         command.operatorId(),
                         command.operatorName());
         try {
-            if (ledgers.insert(changeLedger(before, after, inventoryChange)) != 1) {
+            if (ledgers.insert(InventoryLedgerFactory.change(before, after, inventoryChange))
+                    != 1) {
                 throw new BusinessException(InventoryErrorCode.LEDGER_WRITE_FAILED);
             }
         } catch (DuplicateKeyException exception) {
@@ -516,64 +496,5 @@ public class InventoryMutationApplicationService {
         if (balances.countActiveCountLocks(warehouseId, locationId, skuId) > 0) {
             throw new BusinessException(InventoryErrorCode.COUNT_LOCKED);
         }
-    }
-
-    private InventoryLedgerEntity initializationLedger(
-            InventoryBalanceEntity balance, InitializeInventoryCommand command) {
-        BigDecimal zero = BigDecimal.ZERO.setScale(4);
-        InventoryLedgerEntity ledger = new InventoryLedgerEntity();
-        ledger.setLedgerNo("IL-" + UUID.randomUUID().toString().replace("-", ""));
-        ledger.setBusinessType(InventoryBusinessType.INITIALIZE);
-        ledger.setBusinessNo(
-                "INIT-"
-                        + command.warehouseId()
-                        + "-"
-                        + command.locationId()
-                        + "-"
-                        + command.skuId());
-        ledger.setWarehouseId(command.warehouseId());
-        ledger.setLocationId(command.locationId());
-        ledger.setSkuId(command.skuId());
-        ledger.setBeforeActualQuantity(zero);
-        ledger.setChangeActualQuantity(zero);
-        ledger.setAfterActualQuantity(zero);
-        ledger.setBeforeAvailableQuantity(zero);
-        ledger.setChangeAvailableQuantity(zero);
-        ledger.setAfterAvailableQuantity(zero);
-        ledger.setBeforeFrozenQuantity(zero);
-        ledger.setChangeFrozenQuantity(zero);
-        ledger.setAfterFrozenQuantity(zero);
-        ledger.setBalanceVersionBefore(0);
-        ledger.setBalanceVersionAfter(0);
-        ledger.setOperatorId(command.operatorId());
-        ledger.setOperatorName(command.operatorName());
-        return ledger;
-    }
-
-    private InventoryLedgerEntity changeLedger(
-            InventoryBalanceState before,
-            InventoryBalanceState after,
-            InventoryChangeCommand command) {
-        InventoryLedgerEntity ledger = new InventoryLedgerEntity();
-        ledger.setLedgerNo("IL-" + UUID.randomUUID().toString().replace("-", ""));
-        ledger.setBusinessType(command.businessType());
-        ledger.setBusinessNo(command.businessNo());
-        ledger.setWarehouseId(command.warehouseId());
-        ledger.setLocationId(command.locationId());
-        ledger.setSkuId(command.skuId());
-        ledger.setBeforeActualQuantity(before.actualQuantity());
-        ledger.setChangeActualQuantity(command.quantityChange().actualChange());
-        ledger.setAfterActualQuantity(after.actualQuantity());
-        ledger.setBeforeAvailableQuantity(before.availableQuantity());
-        ledger.setChangeAvailableQuantity(command.quantityChange().availableChange());
-        ledger.setAfterAvailableQuantity(after.availableQuantity());
-        ledger.setBeforeFrozenQuantity(before.frozenQuantity());
-        ledger.setChangeFrozenQuantity(command.quantityChange().frozenChange());
-        ledger.setAfterFrozenQuantity(after.frozenQuantity());
-        ledger.setBalanceVersionBefore(command.expectedVersion());
-        ledger.setBalanceVersionAfter(command.expectedVersion() + 1);
-        ledger.setOperatorId(command.operatorId());
-        ledger.setOperatorName(command.operatorName());
-        return ledger;
     }
 }

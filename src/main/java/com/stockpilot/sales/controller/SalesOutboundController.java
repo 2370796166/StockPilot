@@ -1,12 +1,12 @@
 package com.stockpilot.sales.controller;
 
-import com.stockpilot.masterdata.vo.PageResult;
 import com.stockpilot.sales.request.SalesOutboundRequests;
 import com.stockpilot.sales.service.SalesOutboundApplicationService;
 import com.stockpilot.sales.vo.SalesOutboundSummaryVO;
 import com.stockpilot.sales.vo.SalesOutboundVO;
-import com.stockpilot.security.auth.StockPilotPrincipal;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -41,7 +41,7 @@ public class SalesOutboundController {
     @PostMapping
     public ApiResponse<SalesOutboundVO> create(
             @Valid @RequestBody SalesOutboundRequests.Create request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(salesOutboundService.create(request, actor));
     }
 
@@ -50,7 +50,7 @@ public class SalesOutboundController {
     public ApiResponse<SalesOutboundVO> update(
             @PathVariable @Positive long id,
             @Valid @RequestBody SalesOutboundRequests.Update request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(salesOutboundService.update(id, request, actor));
     }
 
@@ -59,7 +59,7 @@ public class SalesOutboundController {
     public ApiResponse<SalesOutboundVO> reserve(
             @PathVariable @Positive long id,
             @Valid @RequestBody SalesOutboundRequests.Transition request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(salesOutboundService.reserve(id, request, actor));
     }
 
@@ -68,21 +68,21 @@ public class SalesOutboundController {
     public ApiResponse<SalesOutboundVO> approve(
             @PathVariable @Positive long id,
             @Valid @RequestBody SalesOutboundRequests.Transition request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(salesOutboundService.approve(id, request, actor));
     }
 
     @PreAuthorize("hasAuthority('SALES_OUTBOUND_COMPLETE')")
     @PostMapping("/{id}/complete")
     public ApiResponse<SalesOutboundVO> complete(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(salesOutboundService.complete(id, actor));
     }
 
     @PreAuthorize("hasAuthority('SALES_OUTBOUND_WRITE')")
     @PostMapping("/{id}/cancel")
     public ApiResponse<SalesOutboundVO> cancel(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(salesOutboundService.cancel(id, actor));
     }
 }

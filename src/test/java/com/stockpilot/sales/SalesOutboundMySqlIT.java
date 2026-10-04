@@ -3,10 +3,11 @@ package com.stockpilot.sales;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.stockpilot.StockPilotApplication;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
 import com.stockpilot.sales.domain.SalesOutboundStatus;
 import com.stockpilot.sales.request.SalesOutboundRequests;
 import com.stockpilot.sales.service.SalesOutboundApplicationService;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.sql.*;
@@ -28,7 +29,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @SpringBootTest(classes = SalesOutboundMySqlIT.TestApplication.class)
 @ContextConfiguration(initializers = SalesOutboundMySqlIT.MySqlInitializer.class)
 class SalesOutboundMySqlIT {
-    private static final String DATABASE = "stockpilot_outbound_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_outbound_it");
     private static final String ADMIN_URL =
             System.getenv()
                     .getOrDefault(
@@ -38,9 +40,8 @@ class SalesOutboundMySqlIT {
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_USER", "root");
     private static final String ADMIN_PASSWORD =
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_PASSWORD", "root_dev_only");
-    private static final StockPilotPrincipal OPERATOR =
-            new StockPilotPrincipal(101L, "it-operator");
-    private static final StockPilotPrincipal AUDITOR = new StockPilotPrincipal(102L, "it-auditor");
+    private static final AuthenticatedActor OPERATOR = new AuthenticatedActor(101L, "it-operator");
+    private static final AuthenticatedActor AUDITOR = new AuthenticatedActor(102L, "it-auditor");
     private static final AtomicInteger SEQUENCE = new AtomicInteger();
 
     @Autowired private SalesOutboundApplicationService service;
@@ -719,6 +720,7 @@ class SalesOutboundMySqlIT {
     static class MySqlInitializer
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
             try (Connection c = DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement s = c.createStatement()) {
                 s.execute("DROP DATABASE IF EXISTS " + DATABASE);
@@ -732,9 +734,8 @@ class SalesOutboundMySqlIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
                     "spring.datasource.hikari.maximum-pool-size=25",

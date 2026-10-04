@@ -10,6 +10,27 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 public interface InventoryLedgerMapper {
+    @Select(
+            """
+        <script>
+        SELECT business_type, COUNT(*) AS ledger_count,
+               SUM(change_actual_quantity) AS change_actual_quantity,
+               SUM(change_available_quantity) AS change_available_quantity,
+               SUM(change_frozen_quantity) AS change_frozen_quantity
+        FROM inventory_ledger
+        WHERE sku_id = #{query.dimension.skuId} AND warehouse_id = #{query.dimension.warehouseId}
+          AND occurred_at &gt;= #{query.startInclusive} AND occurred_at &lt; #{query.endExclusive}
+        <if test="query.dimension.locationId != null">AND location_id = #{query.dimension.locationId}</if>
+        GROUP BY business_type ORDER BY business_type
+        </script>
+        """)
+    java.util.List<com.stockpilot.inventory.vo.InventoryMovementTotalVO> selectPeriodTotals(
+            @Param("query") com.stockpilot.inventory.request.InventoryPeriodQuery query);
+
+    @org.apache.ibatis.annotations.Select(
+            "SELECT * FROM inventory_ledger WHERE ledger_no = #{ledgerNo}")
+    com.stockpilot.inventory.domain.InventoryLedgerEntity selectByLedgerNo(String ledgerNo);
+
     @Insert(
             """
             INSERT INTO inventory_ledger(
@@ -61,6 +82,9 @@ public interface InventoryLedgerMapper {
                 </if>
                 <if test="query.businessNo != null and query.businessNo != ''">
                     AND business_no = #{query.businessNo}
+                </if>
+                <if test="query.startDate != null">
+                    AND occurred_at &gt;= #{query.startInclusive} AND occurred_at &lt; #{query.endExclusive}
                 </if>
             </where>
             ORDER BY occurred_at DESC, id DESC

@@ -5,10 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
+import com.stockpilot.masterdata.controller.WarehouseController;
 import com.stockpilot.masterdata.infrastructure.cache.NoOpReferenceDataCache;
-import com.stockpilot.masterdata.warehouse.controller.WarehouseController;
-import com.stockpilot.masterdata.warehouse.mapper.WarehouseMapper;
-import com.stockpilot.masterdata.warehouse.service.WarehouseApplicationService;
+import com.stockpilot.masterdata.mapper.WarehouseMapper;
+import com.stockpilot.masterdata.service.WarehouseApplicationService;
 import com.stockpilot.shared.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

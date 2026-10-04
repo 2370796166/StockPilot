@@ -6,12 +6,12 @@ import static org.mockito.Mockito.*;
 
 import com.stockpilot.security.audit.AuditService;
 import com.stockpilot.security.auth.JwtService;
-import com.stockpilot.security.auth.StockPilotPrincipal;
 import com.stockpilot.security.config.SecurityProperties;
 import com.stockpilot.security.domain.*;
 import com.stockpilot.security.mapper.*;
 import com.stockpilot.security.request.SecurityRequests;
 import com.stockpilot.security.service.*;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import jakarta.validation.Validation;
 import java.util.*;
@@ -106,14 +106,9 @@ class AuthenticationApplicationServiceTest {
                             return 1;
                         });
         when(users.findRoleIds(9L)).thenReturn(List.of());
-        SecurityManagementApplicationService management =
-                new SecurityManagementApplicationService(
-                        users,
-                        mock(RoleMapper.class),
-                        mock(PermissionMapper.class),
-                        logs,
-                        encoder,
-                        new AuditService(logs));
+        UserManagementApplicationService management =
+                new UserManagementApplicationService(
+                        users, mock(RoleMapper.class), encoder, new AuditService(logs));
         management.createUser(new SecurityRequests.CreateUser("alice", "1234", "Alice"));
         verify(users)
                 .insert(
@@ -170,7 +165,7 @@ class AuthenticationApplicationServiceTest {
         when(users.findRoleCodes(1L)).thenReturn(List.of("ADMIN"));
         when(users.findPermissionCodes(1L))
                 .thenReturn(List.of("MASTER_DATA_READ", "MASTER_DATA_WRITE"));
-        var current = service.current(new StockPilotPrincipal(1L, "alice"));
+        var current = service.current(new AuthenticatedActor(1L, "alice"));
         assertEquals(1L, current.userId());
         assertEquals("alice", current.username());
         assertEquals("Alice", current.displayName());

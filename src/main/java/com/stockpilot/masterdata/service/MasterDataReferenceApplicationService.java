@@ -2,12 +2,12 @@ package com.stockpilot.masterdata.service;
 
 import com.stockpilot.masterdata.api.MasterDataErrorCode;
 import com.stockpilot.masterdata.domain.MasterDataStatus;
-import com.stockpilot.masterdata.location.domain.WarehouseLocationEntity;
-import com.stockpilot.masterdata.location.mapper.WarehouseLocationMapper;
-import com.stockpilot.masterdata.sku.domain.SkuEntity;
-import com.stockpilot.masterdata.sku.mapper.SkuMapper;
-import com.stockpilot.masterdata.warehouse.domain.WarehouseEntity;
-import com.stockpilot.masterdata.warehouse.mapper.WarehouseMapper;
+import com.stockpilot.masterdata.domain.SkuEntity;
+import com.stockpilot.masterdata.domain.WarehouseEntity;
+import com.stockpilot.masterdata.domain.WarehouseLocationEntity;
+import com.stockpilot.masterdata.mapper.SkuMapper;
+import com.stockpilot.masterdata.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.mapper.WarehouseMapper;
 import com.stockpilot.shared.exception.BusinessException;
 import org.springframework.stereotype.Service;
 

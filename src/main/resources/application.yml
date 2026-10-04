@@ -2,6 +2,8 @@ server:
   port: ${SERVER_PORT:8085}
 
 spring:
+  config:
+    import: "optional:file:./.env[.properties]"
   application:
     name: stockpilot-backend
   datasource:
@@ -53,6 +55,14 @@ logging:
     com.stockpilot: INFO
 
 stockpilot:
+  ai:
+    enabled: ${AI_ENABLED:false}
+    provider: ${AI_PROVIDER:CUSTOM}
+    base-url: ${AI_BASE_URL:}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:}
+    timeout: ${AI_REQUEST_TIMEOUT:20s}
+    max-tool-calls: ${AI_MAX_TOOL_CALLS:6}
   cache:
     enabled: ${CACHE_ENABLED:false}
     key-prefix: ${CACHE_KEY_PREFIX:stockpilot:v1}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createUser, listRoles, pageUsers, setUserRoles, setUserStatus, updateUser } from '@/modules/security/api'
@@ -20,14 +21,19 @@ const loading = ref(false),
   roles = ref<RoleRecord[]>([])
 const form = reactive({ username: '', displayName: '', password: '', newPassword: '' }),
   roleIds = ref<number[]>([])
+const listRequest = useLatestRequest()
 async function load() {
+  const sequence = listRequest.next()
   loading.value = true
   try {
     const r = await pageUsers(page.value, size.value)
+    if (!listRequest.isCurrent(sequence)) return
     records.value = r.records
     total.value = r.total
+  } catch {
+    // Request errors are displayed by the shared interceptor.
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(sequence)) loading.value = false
   }
 }
 function openCreate() {

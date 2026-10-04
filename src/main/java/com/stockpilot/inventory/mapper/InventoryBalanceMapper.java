@@ -12,6 +12,34 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface InventoryBalanceMapper {
+    @Select(
+            """
+        <script>
+        SELECT warehouse_id, SUM(actual_quantity) AS actual_quantity,
+               SUM(available_quantity) AS available_quantity, SUM(frozen_quantity) AS frozen_quantity
+        FROM inventory_balance WHERE sku_id = #{query.skuId} AND warehouse_id = #{query.warehouseId}
+        <if test="query.locationId != null">AND location_id = #{query.locationId}</if>
+        GROUP BY warehouse_id
+        </script>
+        """)
+    com.stockpilot.inventory.vo.InventoryWarehouseBalanceVO selectDimensionTotals(
+            @Param("query") com.stockpilot.inventory.request.InventoryDimensionQuery query);
+
+    @Select(
+            """
+            <script>
+            SELECT warehouse_id, SUM(actual_quantity) AS actual_quantity,
+                   SUM(available_quantity) AS available_quantity, SUM(frozen_quantity) AS frozen_quantity
+            FROM inventory_balance WHERE sku_id = #{query.skuId}
+            <if test="query.warehouseId != null">AND warehouse_id = #{query.warehouseId}</if>
+            <if test="query.locationId != null">AND location_id = #{query.locationId}</if>
+            GROUP BY warehouse_id ORDER BY warehouse_id
+            </script>
+            """)
+    IPage<com.stockpilot.inventory.vo.InventoryWarehouseBalanceVO> selectWarehouseTotals(
+            Page<com.stockpilot.inventory.vo.InventoryWarehouseBalanceVO> page,
+            @Param("query") InventoryBalancePageQuery query);
+
     @Insert(
             """
             INSERT INTO inventory_balance(

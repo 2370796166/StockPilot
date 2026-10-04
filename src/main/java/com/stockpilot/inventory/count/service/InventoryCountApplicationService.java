@@ -9,8 +9,8 @@ import com.stockpilot.inventory.count.vo.*;
 import com.stockpilot.inventory.service.InventoryCountAdjustmentCommand;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.vo.InventoryBalanceVO;
-import com.stockpilot.masterdata.vo.PageResult;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.util.*;
@@ -23,6 +23,17 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class InventoryCountApplicationService {
+    @Transactional(readOnly = true)
+    public InventoryCountVO getByNumber(String number) {
+        if (number == null || !number.matches("[A-Za-z0-9_-]{2,64}"))
+            throw new IllegalArgumentException("Invalid document number");
+        Long id = counts.selectIdByNumber(number.toUpperCase(java.util.Locale.ROOT));
+        if (id == null)
+            throw new com.stockpilot.shared.exception.BusinessException(
+                    InventoryCountErrorCode.NOT_FOUND);
+        return get(id);
+    }
+
     private final InventoryCountMapper counts;
     private final InventoryCountLineMapper lines;
     private final InventoryCountScopeMapper scopes;
@@ -44,7 +55,7 @@ public class InventoryCountApplicationService {
     public PageResult<InventoryCountSummaryVO> page(InventoryCountRequests.PageQuery q) {
         var p = counts.selectPage(new Page<>(q.getPage(), q.getSize()), q);
         return new PageResult<>(
-                p.getRecords().stream().map(this::summary).toList(),
+                p.getRecords().stream().map(InventoryCountViewAssembler::summary).toList(),
                 p.getTotal(),
                 p.getCurrent(),
                 p.getSize());
@@ -55,13 +66,13 @@ public class InventoryCountApplicationService {
     public InventoryCountVO get(long id) {
         var h = counts.selectById(id);
         if (h == null) throw error(InventoryCountErrorCode.NOT_FOUND);
-        return detail(h, lines.selectByCountId(id));
+        return InventoryCountViewAssembler.detail(h, lines.selectByCountId(id));
     }
 
     // 创建静态盘点：按稳定顺序锁定所有库存维度，保存三数量与版本快照并建立维度锁。
     // 维度锁存续期间，采购、销售、调拨和其他库存变更均不能修改这些库存行。
     @Transactional
-    public InventoryCountVO create(InventoryCountRequests.Create r, StockPilotPrincipal actor) {
+    public InventoryCountVO create(InventoryCountRequests.Create r, AuthenticatedActor actor) {
         requireActor(actor);
         String no = r.countNo().trim().toUpperCase(Locale.ROOT);
         // 固定维度顺序后依次锁定余额，避免两个盘点任务以不同顺序竞争相同库存行。
@@ -120,7 +131,7 @@ public class InventoryCountApplicationService {
     // 开始盘点：将 DRAFT 推进到 COUNTING，表示现场可以录入实盘结果。
     @Transactional
     public InventoryCountVO start(
-            long id, InventoryCountRequests.Transition r, StockPilotPrincipal a) {
+            long id, InventoryCountRequests.Transition r, AuthenticatedActor a) {
         return simpleTransition(
                 id, r.version(), InventoryCountStatus.DRAFT, InventoryCountStatus.COUNTING, a);
     }
@@ -129,7 +140,7 @@ public class InventoryCountApplicationService {
     // 更新单头版本用于阻止多个客户端以同一个旧版本相互覆盖结果。
     @Transactional
     public InventoryCountVO recordResults(
-            long id, InventoryCountRequests.RecordResults r, StockPilotPrincipal a) {
+            long id, InventoryCountRequests.RecordResults r, AuthenticatedActor a) {
         requireActor(a);
         InventoryCountEntity h = locked(id);
         requireState(h, InventoryCountStatus.COUNTING);
@@ -167,7 +178,7 @@ public class InventoryCountApplicationService {
     // 提交盘点结果：只有所有明细都已录入实盘数量时，COUNTING 才能转为 SUBMITTED。
     @Transactional
     public InventoryCountVO submit(
-            long id, InventoryCountRequests.Transition r, StockPilotPrincipal a) {
+            long id, InventoryCountRequests.Transition r, AuthenticatedActor a) {
         InventoryCountEntity h = locked(id);
         requireActor(a);
         requireState(h, InventoryCountStatus.COUNTING);
@@ -180,7 +191,7 @@ public class InventoryCountApplicationService {
     // 审核盘点结果：确认差异可以执行，但此步骤尚不修改库存余额。
     @Transactional
     public InventoryCountVO approve(
-            long id, InventoryCountRequests.Transition r, StockPilotPrincipal a) {
+            long id, InventoryCountRequests.Transition r, AuthenticatedActor a) {
         return simpleTransition(
                 id, r.version(), InventoryCountStatus.SUBMITTED, InventoryCountStatus.APPROVED, a);
     }
@@ -188,7 +199,7 @@ public class InventoryCountApplicationService {
     // 执行盘点调整：逐维度校验原快照和盘点锁，再将差异同步作用于实际量与可用量。
     // 全部流水、ADJUSTED 状态和维度锁释放共同提交，避免部分调整或提前解锁。
     @Transactional
-    public InventoryCountVO adjust(long id, StockPilotPrincipal a) {
+    public InventoryCountVO adjust(long id, AuthenticatedActor a) {
         requireActor(a);
         InventoryCountEntity h = locked(id);
         if (h.getStatus() == InventoryCountStatus.ADJUSTED)
@@ -230,7 +241,7 @@ public class InventoryCountApplicationService {
             int version,
             InventoryCountStatus from,
             InventoryCountStatus to,
-            StockPilotPrincipal a) {
+            AuthenticatedActor a) {
         requireActor(a);
         var h = locked(id);
         requireState(h, from);
@@ -243,7 +254,7 @@ public class InventoryCountApplicationService {
             InventoryCountEntity h,
             InventoryCountStatus from,
             InventoryCountStatus to,
-            StockPilotPrincipal a) {
+            AuthenticatedActor a) {
         if (counts.transition(
                         h.getId(), h.getVersion(), from.name(), to.name(), a.userId(), a.username())
                 != 1) throw error(InventoryCountErrorCode.CONCURRENT_MODIFICATION);
@@ -265,7 +276,7 @@ public class InventoryCountApplicationService {
         if (!h.getVersion().equals(v)) throw error(InventoryCountErrorCode.CONCURRENT_MODIFICATION);
     }
 
-    private void requireActor(StockPilotPrincipal a) {
+    private void requireActor(AuthenticatedActor a) {
         if (a == null
                 || a.userId() == null
                 || a.userId() <= 0
@@ -277,46 +288,6 @@ public class InventoryCountApplicationService {
         if (v == null || v.signum() < 0 || v.scale() > 4 || v.precision() - v.scale() > 15)
             throw error(InventoryCountErrorCode.INVALID_LINE);
         return v.setScale(4);
-    }
-
-    private InventoryCountVO detail(InventoryCountEntity h, List<InventoryCountLineEntity> list) {
-        return new InventoryCountVO(
-                h.getId(),
-                h.getCountNo(),
-                h.getWarehouseId(),
-                h.getStatus(),
-                h.getRemark(),
-                h.getVersion(),
-                h.getCreatedAt(),
-                h.getUpdatedAt(),
-                list.stream()
-                        .map(
-                                x ->
-                                        new InventoryCountVO.Line(
-                                                x.getId(),
-                                                x.getLineNo(),
-                                                x.getLocationId(),
-                                                x.getSkuId(),
-                                                x.getSnapshotActualQuantity(),
-                                                x.getSnapshotAvailableQuantity(),
-                                                x.getSnapshotFrozenQuantity(),
-                                                x.getSnapshotBalanceVersion(),
-                                                x.getCountedQuantity(),
-                                                x.getDifferenceQuantity(),
-                                                x.getReason()))
-                        .toList());
-    }
-
-    private InventoryCountSummaryVO summary(InventoryCountEntity h) {
-        return new InventoryCountSummaryVO(
-                h.getId(),
-                h.getCountNo(),
-                h.getWarehouseId(),
-                h.getStatus(),
-                h.getRemark(),
-                h.getVersion(),
-                h.getCreatedAt(),
-                h.getUpdatedAt());
     }
 
     private BusinessException error(InventoryCountErrorCode c) {

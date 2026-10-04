@@ -11,6 +11,9 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface PurchaseReceiptMapper {
+    @Select("SELECT id FROM purchase_receipt WHERE receipt_no = #{number}")
+    Long selectIdByNumber(String number);
+
     String COLUMNS =
             """
             id, receipt_no, warehouse_id, status, remark,

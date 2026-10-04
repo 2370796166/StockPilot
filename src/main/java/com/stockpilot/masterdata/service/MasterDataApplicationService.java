@@ -11,7 +11,7 @@ import com.stockpilot.masterdata.request.CreateMasterDataRequest;
 import com.stockpilot.masterdata.request.PageQuery;
 import com.stockpilot.masterdata.request.UpdateMasterDataRequest;
 import com.stockpilot.masterdata.vo.MasterDataVO;
-import com.stockpilot.masterdata.vo.PageResult;
+import com.stockpilot.shared.api.PageResult;
 import com.stockpilot.shared.exception.BusinessException;
 import java.util.Locale;
 import java.util.function.Supplier;

@@ -20,6 +20,12 @@ const router = createRouter({
       component: () => import('../layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
       children: [
+        {
+          path: 'ai-assistant',
+          name: 'ai-assistant',
+          component: () => import('@/modules/ai/AiAssistantView.vue'),
+          meta: { title: 'AI 仓储助手' },
+        },
         { path: '', redirect: '/dashboard' },
         {
           path: 'dashboard',
@@ -135,13 +141,12 @@ router.beforeEach(async (to) => {
 
   if (to.name === 'login') {
     if (!hasToken) return true
-    if (!auth.initialized) await auth.loadCurrentUser()
-    return auth.authenticated ? { name: 'dashboard' } : true
+    return (await auth.loadCurrentUser()) ? { name: 'dashboard' } : true
   }
 
   if (to.matched.some((record) => record.meta.requiresAuth)) {
     if (!hasToken) return loginRedirect(to)
-    if (!auth.authenticated && !(await auth.loadCurrentUser())) return loginRedirect(to)
+    if (!(await auth.loadCurrentUser())) return loginRedirect(to)
     if (to.meta.authority && !auth.can(to.meta.authority)) return { name: 'forbidden' }
   }
   return true

@@ -1,10 +1,13 @@
 package com.stockpilot.security.controller;
 
-import com.stockpilot.masterdata.vo.PageResult;
 import com.stockpilot.security.request.SecurityRequests;
-import com.stockpilot.security.service.SecurityManagementApplicationService;
+import com.stockpilot.security.service.PermissionManagementApplicationService;
+import com.stockpilot.security.service.RoleManagementApplicationService;
+import com.stockpilot.security.service.SecurityAuditQueryService;
+import com.stockpilot.security.service.UserManagementApplicationService;
 import com.stockpilot.security.vo.SecurityVO;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.api.PageResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.util.List;
@@ -16,45 +19,54 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/security")
 public class SecurityManagementController {
-    private final SecurityManagementApplicationService securityManagementService;
+    private final UserManagementApplicationService userManagementService;
+    private final RoleManagementApplicationService roleManagementService;
+    private final PermissionManagementApplicationService permissionManagementService;
+    private final SecurityAuditQueryService securityAuditQueryService;
 
     public SecurityManagementController(
-            SecurityManagementApplicationService securityManagementService) {
-        this.securityManagementService = securityManagementService;
+            UserManagementApplicationService userManagementService,
+            RoleManagementApplicationService roleManagementService,
+            PermissionManagementApplicationService permissionManagementService,
+            SecurityAuditQueryService securityAuditQueryService) {
+        this.userManagementService = userManagementService;
+        this.roleManagementService = roleManagementService;
+        this.permissionManagementService = permissionManagementService;
+        this.securityAuditQueryService = securityAuditQueryService;
     }
 
     @PreAuthorize("hasAuthority('SECURITY_USER_WRITE')")
     @PostMapping("/users")
     public ApiResponse<SecurityVO.User> createUser(
             @Valid @RequestBody SecurityRequests.CreateUser r) {
-        return ApiResponse.success(securityManagementService.createUser(r));
+        return ApiResponse.success(userManagementService.createUser(r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_USER_WRITE')")
     @PutMapping("/users/{id}")
     public ApiResponse<SecurityVO.User> updateUser(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.UpdateUser r) {
-        return ApiResponse.success(securityManagementService.updateUser(id, r));
+        return ApiResponse.success(userManagementService.updateUser(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_USER_WRITE')")
     @PatchMapping("/users/{id}/status")
     public ApiResponse<SecurityVO.User> userStatus(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.Status r) {
-        return ApiResponse.success(securityManagementService.userStatus(id, r));
+        return ApiResponse.success(userManagementService.changeStatus(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_GRANT')")
     @PutMapping("/users/{id}/roles")
     public ApiResponse<SecurityVO.User> userRoles(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.Ids r) {
-        return ApiResponse.success(securityManagementService.setUserRoles(id, r));
+        return ApiResponse.success(userManagementService.replaceRoles(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_USER_READ')")
     @GetMapping("/users/{id}")
     public ApiResponse<SecurityVO.User> user(@PathVariable @Positive long id) {
-        return ApiResponse.success(securityManagementService.getUser(id));
+        return ApiResponse.success(userManagementService.getUser(id));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_USER_READ')")
@@ -62,54 +74,54 @@ public class SecurityManagementController {
     public ApiResponse<PageResult<SecurityVO.User>> users(
             @RequestParam(defaultValue = "1") @Min(1) long page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) long size) {
-        return ApiResponse.success(securityManagementService.users(page, size));
+        return ApiResponse.success(userManagementService.pageUsers(page, size));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_ROLE_WRITE')")
     @PostMapping("/roles")
     public ApiResponse<SecurityVO.Role> createRole(
             @Valid @RequestBody SecurityRequests.CreateRole r) {
-        return ApiResponse.success(securityManagementService.createRole(r));
+        return ApiResponse.success(roleManagementService.createRole(r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_ROLE_WRITE')")
     @PutMapping("/roles/{id}")
     public ApiResponse<SecurityVO.Role> updateRole(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.UpdateRole r) {
-        return ApiResponse.success(securityManagementService.updateRole(id, r));
+        return ApiResponse.success(roleManagementService.updateRole(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_ROLE_WRITE')")
     @PatchMapping("/roles/{id}/status")
     public ApiResponse<SecurityVO.Role> roleStatus(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.Status r) {
-        return ApiResponse.success(securityManagementService.roleStatus(id, r));
+        return ApiResponse.success(roleManagementService.changeStatus(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_GRANT')")
     @PutMapping("/roles/{id}/permissions")
     public ApiResponse<SecurityVO.Role> rolePermissions(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.Ids r) {
-        return ApiResponse.success(securityManagementService.setRolePermissions(id, r));
+        return ApiResponse.success(roleManagementService.replacePermissions(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_ROLE_READ')")
     @GetMapping("/roles/{id}")
     public ApiResponse<SecurityVO.Role> role(@PathVariable @Positive long id) {
-        return ApiResponse.success(securityManagementService.getRole(id));
+        return ApiResponse.success(roleManagementService.getRole(id));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_ROLE_READ')")
     @GetMapping("/roles")
     public ApiResponse<List<SecurityVO.Role>> roles() {
-        return ApiResponse.success(securityManagementService.roles());
+        return ApiResponse.success(roleManagementService.listRoles());
     }
 
     @PreAuthorize("hasAuthority('SECURITY_PERMISSION_WRITE')")
     @PostMapping("/permissions")
     public ApiResponse<SecurityVO.Permission> createPermission(
             @Valid @RequestBody SecurityRequests.CreatePermission r) {
-        return ApiResponse.success(securityManagementService.createPermission(r));
+        return ApiResponse.success(permissionManagementService.createPermission(r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_PERMISSION_WRITE')")
@@ -117,20 +129,20 @@ public class SecurityManagementController {
     public ApiResponse<SecurityVO.Permission> updatePermission(
             @PathVariable @Positive long id,
             @Valid @RequestBody SecurityRequests.UpdatePermission r) {
-        return ApiResponse.success(securityManagementService.updatePermission(id, r));
+        return ApiResponse.success(permissionManagementService.updatePermission(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_PERMISSION_WRITE')")
     @PatchMapping("/permissions/{id}/status")
     public ApiResponse<SecurityVO.Permission> permissionStatus(
             @PathVariable @Positive long id, @Valid @RequestBody SecurityRequests.Status r) {
-        return ApiResponse.success(securityManagementService.permissionStatus(id, r));
+        return ApiResponse.success(permissionManagementService.changeStatus(id, r));
     }
 
     @PreAuthorize("hasAuthority('SECURITY_PERMISSION_READ')")
     @GetMapping("/permissions")
     public ApiResponse<List<SecurityVO.Permission>> permissions() {
-        return ApiResponse.success(securityManagementService.permissions());
+        return ApiResponse.success(permissionManagementService.listPermissions());
     }
 
     @PreAuthorize("hasAuthority('AUDIT_LOG_READ')")
@@ -138,6 +150,6 @@ public class SecurityManagementController {
     public ApiResponse<PageResult<SecurityVO.Audit>> audits(
             @RequestParam(defaultValue = "1") @Min(1) long page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) long size) {
-        return ApiResponse.success(securityManagementService.audits(page, size));
+        return ApiResponse.success(securityAuditQueryService.pageAudits(page, size));
     }
 }

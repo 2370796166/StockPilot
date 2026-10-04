@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.service.PurchaseReceiptInventoryCommand;
 import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
-import com.stockpilot.masterdata.vo.PageResult;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.messaging.service.TransactionalOutboxApplicationService;
 import com.stockpilot.purchase.api.PurchaseReceiptErrorCode;
@@ -17,7 +16,8 @@ import com.stockpilot.purchase.mapper.PurchaseReceiptMapper;
 import com.stockpilot.purchase.request.PurchaseReceiptRequests;
 import com.stockpilot.purchase.vo.PurchaseReceiptSummaryVO;
 import com.stockpilot.purchase.vo.PurchaseReceiptVO;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.util.Comparator;
@@ -32,6 +32,17 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class PurchaseReceiptApplicationService {
+    @Transactional(readOnly = true)
+    public PurchaseReceiptVO getByNumber(String number) {
+        if (number == null || !number.matches("[A-Za-z0-9_-]{2,64}"))
+            throw new IllegalArgumentException("Invalid document number");
+        Long id = receipts.selectIdByNumber(number.toUpperCase(java.util.Locale.ROOT));
+        if (id == null)
+            throw new com.stockpilot.shared.exception.BusinessException(
+                    PurchaseReceiptErrorCode.NOT_FOUND);
+        return get(id);
+    }
+
     private final PurchaseReceiptMapper receipts;
     private final PurchaseReceiptLineMapper lines;
     private final MasterDataReferenceApplicationService masterData;
@@ -55,7 +66,7 @@ public class PurchaseReceiptApplicationService {
     // 单号由数据库唯一约束兜底，任何明细保存失败都会回滚整张单据。
     @Transactional
     public PurchaseReceiptVO create(
-            PurchaseReceiptRequests.Create request, StockPilotPrincipal actor) {
+            PurchaseReceiptRequests.Create request, AuthenticatedActor actor) {
         requireActor(actor);
         List<PurchaseReceiptLineEntity> newLines =
                 validateAndBuildLines(null, request.warehouseId(), request.lines());
@@ -83,7 +94,7 @@ public class PurchaseReceiptApplicationService {
     // 删除旧明细、更新单头和插入新明细处于同一事务，不会留下半更新状态。
     @Transactional
     public PurchaseReceiptVO update(
-            long id, PurchaseReceiptRequests.Update request, StockPilotPrincipal actor) {
+            long id, PurchaseReceiptRequests.Update request, AuthenticatedActor actor) {
         requireActor(actor);
         PurchaseReceiptEntity current = requireLocked(id);
         requireState(current, PurchaseReceiptStatus.DRAFT);
@@ -110,7 +121,7 @@ public class PurchaseReceiptApplicationService {
     // 行锁和版本条件共同防止两个请求同时推进同一张单据。
     @Transactional
     public PurchaseReceiptVO submit(
-            long id, PurchaseReceiptRequests.Transition request, StockPilotPrincipal actor) {
+            long id, PurchaseReceiptRequests.Transition request, AuthenticatedActor actor) {
         requireActor(actor);
         PurchaseReceiptEntity current = requireLocked(id);
         requireState(current, PurchaseReceiptStatus.DRAFT);
@@ -128,7 +139,7 @@ public class PurchaseReceiptApplicationService {
     // 此步骤只确认业务单据，不在审核阶段提前增加库存。
     @Transactional
     public PurchaseReceiptVO approve(
-            long id, PurchaseReceiptRequests.Transition request, StockPilotPrincipal actor) {
+            long id, PurchaseReceiptRequests.Transition request, AuthenticatedActor actor) {
         requireActor(actor);
         PurchaseReceiptEntity current = requireLocked(id);
         requireState(current, PurchaseReceiptStatus.SUBMITTED);
@@ -142,7 +153,7 @@ public class PurchaseReceiptApplicationService {
     // 完成采购入库：锁定已审核单据，将每条明细同步增加实际库存和可用库存并写入不可变流水。
     // 单据状态、全部库存变化、流水和 Outbox 事件属于同一 MySQL 本地事务，失败时整体回滚。
     @Transactional
-    public PurchaseReceiptVO complete(long id, StockPilotPrincipal actor) {
+    public PurchaseReceiptVO complete(long id, AuthenticatedActor actor) {
         requireActor(actor);
         PurchaseReceiptEntity current = requireLocked(id);
         if (current.getStatus() == PurchaseReceiptStatus.COMPLETED) {
@@ -161,10 +172,7 @@ public class PurchaseReceiptApplicationService {
                                 .thenComparing(PurchaseReceiptLineEntity::getSkuId))
                 .forEach(
                         line -> {
-                            masterData.requireEnabledInventoryDimension(
-                                    current.getWarehouseId(),
-                                    line.getLocationId(),
-                                    line.getSkuId());
+                            // 库存服务在写入前统一校验基础资料，避免每条明细重复查询。
                             inventory.receivePurchase(
                                     new PurchaseReceiptInventoryCommand(
                                             current.getWarehouseId(),
@@ -200,7 +208,7 @@ public class PurchaseReceiptApplicationService {
         if (receipt == null) {
             throw new BusinessException(PurchaseReceiptErrorCode.NOT_FOUND);
         }
-        return toDetail(receipt, lines.selectByReceiptId(id));
+        return PurchaseReceiptViewAssembler.detail(receipt, lines.selectByReceiptId(id));
     }
 
     // 分页查询采购入库摘要；单号查询统一转为大写以匹配创建时的规范化规则。
@@ -212,7 +220,7 @@ public class PurchaseReceiptApplicationService {
         IPage<PurchaseReceiptEntity> result =
                 receipts.selectPage(Page.of(query.getPage(), query.getSize()), query);
         return new PageResult<>(
-                result.getRecords().stream().map(this::toSummary).toList(),
+                result.getRecords().stream().map(PurchaseReceiptViewAssembler::summary).toList(),
                 result.getTotal(),
                 result.getCurrent(),
                 result.getSize());
@@ -296,7 +304,7 @@ public class PurchaseReceiptApplicationService {
         }
     }
 
-    private void requireActor(StockPilotPrincipal actor) {
+    private void requireActor(AuthenticatedActor actor) {
         if (actor == null
                 || actor.userId() == null
                 || actor.userId() <= 0
@@ -325,53 +333,6 @@ public class PurchaseReceiptApplicationService {
                     PurchaseReceiptErrorCode.INVALID_LINE, "入库数量必须大于0，且最多15位整数和4位小数");
         }
         return quantity.setScale(4);
-    }
-
-    private PurchaseReceiptVO toDetail(
-            PurchaseReceiptEntity receipt, List<PurchaseReceiptLineEntity> receiptLines) {
-        return new PurchaseReceiptVO(
-                receipt.getId(),
-                receipt.getReceiptNo(),
-                receipt.getWarehouseId(),
-                receipt.getStatus(),
-                receipt.getRemark(),
-                receipt.getCreatedBy(),
-                receipt.getCreatedByName(),
-                receipt.getSubmittedBy(),
-                receipt.getSubmittedByName(),
-                receipt.getSubmittedAt(),
-                receipt.getApprovedBy(),
-                receipt.getApprovedByName(),
-                receipt.getApprovedAt(),
-                receipt.getCompletedBy(),
-                receipt.getCompletedByName(),
-                receipt.getCompletedAt(),
-                receipt.getVersion(),
-                receipt.getCreatedAt(),
-                receipt.getUpdatedAt(),
-                receiptLines.stream()
-                        .map(
-                                line ->
-                                        new PurchaseReceiptVO.Line(
-                                                line.getId(),
-                                                line.getLineNo(),
-                                                line.getLocationId(),
-                                                line.getSkuId(),
-                                                line.getQuantity()))
-                        .toList());
-    }
-
-    private PurchaseReceiptSummaryVO toSummary(PurchaseReceiptEntity receipt) {
-        return new PurchaseReceiptSummaryVO(
-                receipt.getId(),
-                receipt.getReceiptNo(),
-                receipt.getWarehouseId(),
-                receipt.getStatus(),
-                receipt.getRemark(),
-                receipt.getCreatedByName(),
-                receipt.getVersion(),
-                receipt.getCreatedAt(),
-                receipt.getUpdatedAt());
     }
 
     private record Dimension(long locationId, long skuId) {}

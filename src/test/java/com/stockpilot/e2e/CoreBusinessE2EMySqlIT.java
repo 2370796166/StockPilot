@@ -9,7 +9,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.StockPilotApplication;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
+import com.sun.net.httpserver.HttpServer;
 import java.math.BigDecimal;
+import java.net.InetSocketAddress;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -42,7 +45,8 @@ import org.springframework.test.context.support.TestPropertySourceUtils;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ContextConfiguration(initializers = CoreBusinessE2EMySqlIT.MySqlInitializer.class)
 class CoreBusinessE2EMySqlIT {
-    private static final String DATABASE = "stockpilot_core_e2e_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_core_e2e_it");
     private static final String ADMIN_URL =
             System.getenv()
                     .getOrDefault(
@@ -58,6 +62,11 @@ class CoreBusinessE2EMySqlIT {
     private static final String NO_PERMISSION_PASSWORD = "E2eNoPermission!2026";
     private static final BigDecimal RECEIPT_QUANTITY = new BigDecimal("10.0000");
     private static final BigDecimal OUTBOUND_QUANTITY = new BigDecimal("4.0000");
+    // This provider is a deterministic local protocol fixture, never a real model.
+    private static HttpServer modelServer;
+    private static volatile String modelTool;
+    private static volatile String modelArguments;
+    private static volatile JsonNode modelRequest;
 
     @Autowired private TestRestTemplate http;
     @Autowired private ObjectMapper json;
@@ -65,6 +74,7 @@ class CoreBusinessE2EMySqlIT {
 
     @AfterAll
     static void dropDedicatedDatabase() throws Exception {
+        if (modelServer != null) modelServer.stop(0);
         try (Connection connection =
                         DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                 Statement statement = connection.createStatement()) {
@@ -315,6 +325,12 @@ class CoreBusinessE2EMySqlIT {
         assertEquals(
                 1, ledgerPage(outboundNo, "OUTBOUND_FREEZE", adminToken).path("total").asInt());
 
+        verifyAiQueries(adminToken, noPermissionToken, freezeLedger.path("ledgerNo").asText());
+        assertBalance(
+                balance(warehouseId, locationId, skuId, adminToken), "10.0000", "6.0000", "4.0000");
+        assertEquals(
+                3, jdbc.queryForObject("SELECT COUNT(*) FROM inventory_ledger", Integer.class));
+
         JsonNode outboundApproved =
                 success(
                         post(
@@ -380,6 +396,186 @@ class CoreBusinessE2EMySqlIT {
                 success(get("/api/outbound/sales-orders/" + requiredId(outboundDraft), adminToken));
         assertEquals("COMPLETED", storedReceipt.path("status").asText(), storedReceipt::toString);
         assertEquals("COMPLETED", storedOutbound.path("status").asText(), storedOutbound::toString);
+        JsonNode completedSources = aiQuery("query_frozen_sources", dimension(), adminToken);
+        assertEquals(
+                "0.0000",
+                completedSources
+                        .path("results")
+                        .get(0)
+                        .path("data")
+                        .path("frozenTotals")
+                        .path("sourceQuantity")
+                        .asText(),
+                completedSources::toString);
+    }
+
+    private Map<String, Object> dimension() {
+        return Map.of("sku", "E2E_SKU", "warehouse", "E2E_WH", "size", 1);
+    }
+
+    private JsonNode aiQuery(String tool, Map<String, Object> arguments, String token) {
+        modelTool = tool;
+        modelArguments = write(arguments);
+        return success(post("/api/ai/questions", Map.of("question", "查询测试商品的仓储数据"), token));
+    }
+
+    private void verifyAiQueries(String adminToken, String noPermissionToken, String ledgerNo) {
+        JsonNode balances = aiQuery("query_balances", dimension(), adminToken);
+        assertEquals("OK", balances.path("status").asText(), balances::toString);
+        JsonNode row =
+                balances.path("results")
+                        .get(0)
+                        .path("data")
+                        .path("warehouses")
+                        .path("records")
+                        .get(0);
+        assertQuantityText("10.0000", row.path("actualQuantity"));
+        assertQuantityText("6.0000", row.path("availableQuantity"));
+        assertQuantityText("4.0000", row.path("frozenQuantity"));
+        assertFalse(balances.path("queriedAt").asText().isBlank());
+        assertFalse(balances.path("results").get(0).path("sources").isEmpty());
+
+        JsonNode frozen = aiQuery("query_frozen_sources", dimension(), adminToken);
+        JsonNode frozenData = frozen.path("results").get(0).path("data");
+        assertEquals("OK", frozen.path("status").asText(), frozen::toString);
+        assertEquals("TOTAL_MATCH", frozenData.path("totalCheck").asText(), frozen::toString);
+        assertEquals("4.0000", frozenData.path("frozenTotals").path("sourceQuantity").asText());
+        assertEquals(
+                "E2E-SO-001",
+                frozenData.path("salesSources").path("records").get(0).path("businessNo").asText());
+
+        JsonNode ledgers = aiQuery("query_ledgers", dimension(), adminToken);
+        JsonNode ledgerPage = ledgers.path("results").get(0).path("data").path("ledgers");
+        assertEquals("OK", ledgers.path("status").asText(), ledgers::toString);
+        assertEquals(3, ledgerPage.path("total").asInt());
+        assertEquals(1, ledgerPage.path("returned").asInt());
+        assertFalse(ledgerPage.path("complete").asBoolean());
+        assertTrue(ledgers.path("answer").asText().contains("一页流水"));
+
+        JsonNode traced = aiQuery("trace_ledger", Map.of("ledgerNo", ledgerNo), adminToken);
+        assertEquals("OK", traced.path("status").asText(), traced::toString);
+        assertEquals(
+                "E2E-SO-001",
+                traced.path("results").get(0).path("data").path("outboundNo").asText());
+        assertEquals(
+                "RESERVED", traced.path("results").get(0).path("data").path("status").asText());
+        assertFalse(
+                modelRequest.toString().contains("core-e2e"), "Remarks must not reach provider");
+        assertFalse(modelRequest.toString().contains(adminToken), "JWT must not reach provider");
+        assertFalse(modelRequest.toString().contains(BOOTSTRAP_PASSWORD));
+
+        String date = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).toString();
+        JsonNode period =
+                aiQuery(
+                        "summarize_movements",
+                        Map.of(
+                                "sku",
+                                "E2E_SKU",
+                                "warehouse",
+                                "E2E_WH",
+                                "startDate",
+                                date,
+                                "endDate",
+                                date),
+                        adminToken);
+        assertEquals("OK", period.path("status").asText(), period::toString);
+        JsonNode summary = period.path("results").get(0).path("data").path("summary");
+        assertEquals(3, summary.path("ledgerCount").asInt());
+        assertQuantityText("10.0000", summary.path("changeActualQuantity"));
+        assertTrue(summary.path("completeForFilter").asBoolean());
+        assertTrue(period.path("answer").asText().contains("不是期初期末余额"));
+
+        for (String tool : List.of("query_balances", "query_ledgers", "query_frozen_sources")) {
+            JsonNode forbidden = aiQuery(tool, dimension(), noPermissionToken);
+            assertEquals("FORBIDDEN", forbidden.path("status").asText(), forbidden::toString);
+            assertTrue(forbidden.path("results").get(0).path("data").isEmpty());
+        }
+        JsonNode forbiddenDocument =
+                aiQuery(
+                        "get_document",
+                        Map.of("documentType", "SALES", "number", "E2E-SO-001"),
+                        noPermissionToken);
+        assertEquals(
+                "FORBIDDEN",
+                forbiddenDocument.path("status").asText(),
+                forbiddenDocument::toString);
+        JsonNode missing = aiQuery("query_ledgers", Map.of("sku", "E2E_SKU"), adminToken);
+        assertEquals("NEEDS_CLARIFICATION", missing.path("status").asText(), missing::toString);
+        JsonNode absent =
+                aiQuery(
+                        "get_document",
+                        Map.of("documentType", "SALES", "number", "E2E-NOT-EXIST"),
+                        adminToken);
+        assertEquals("NO_DATA", absent.path("status").asText(), absent::toString);
+        JsonNode rejected =
+                aiQuery("execute_sql", Map.of("sql", "DELETE FROM inventory_balance"), adminToken);
+        assertEquals("INVALID_TOOL", rejected.path("status").asText(), rejected::toString);
+    }
+
+    private static void startFakeModel() throws Exception {
+        modelServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        ObjectMapper mapper = new ObjectMapper();
+        modelServer.createContext(
+                "/v1/chat/completions",
+                exchange -> {
+                    try {
+                        modelRequest = mapper.readTree(exchange.getRequestBody());
+                        JsonNode messages = modelRequest.path("messages");
+                        boolean hasResult =
+                                "tool"
+                                        .equals(
+                                                messages.path(messages.size() - 1)
+                                                        .path("role")
+                                                        .asText());
+                        Map<String, Object> message =
+                                hasResult
+                                        ? Map.of(
+                                                "role",
+                                                "assistant",
+                                                "content",
+                                                "{\"answer\":\"请核对下方业务证据。\",\"evidence\":[0],\"needsClarification\":false}")
+                                        : Map.of(
+                                                "role",
+                                                "assistant",
+                                                "tool_calls",
+                                                List.of(
+                                                        Map.of(
+                                                                "id",
+                                                                "it-call",
+                                                                "type",
+                                                                "function",
+                                                                "function",
+                                                                Map.of(
+                                                                        "name",
+                                                                        modelTool,
+                                                                        "arguments",
+                                                                        modelArguments))));
+                        byte[] bytes =
+                                mapper.writeValueAsBytes(
+                                        Map.of(
+                                                "choices",
+                                                List.of(
+                                                        Map.of(
+                                                                "finish_reason",
+                                                                hasResult ? "stop" : "tool_calls",
+                                                                "message",
+                                                                message))));
+                        exchange.getResponseHeaders().add("Content-Type", "application/json");
+                        exchange.sendResponseHeaders(200, bytes.length);
+                        exchange.getResponseBody().write(bytes);
+                    } finally {
+                        exchange.close();
+                    }
+                });
+        modelServer.start();
+    }
+
+    private void assertQuantityText(String expected, JsonNode actual) {
+        assertTrue(actual.isTextual(), actual::toString);
+        assertEquals(
+                0,
+                new BigDecimal(expected).compareTo(new BigDecimal(actual.asText())),
+                actual::toString);
     }
 
     private String login(String username, String password) {
@@ -604,6 +800,12 @@ class CoreBusinessE2EMySqlIT {
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         @Override
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
+            try {
+                startFakeModel();
+            } catch (Exception exception) {
+                throw new IllegalStateException("Cannot start local fake model", exception);
+            }
             try (Connection connection =
                             DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement statement = connection.createStatement()) {
@@ -618,14 +820,22 @@ class CoreBusinessE2EMySqlIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
                     "stockpilot.security.jwt-secret=01234567890123456789012345678901",
                     "stockpilot.security.bootstrap-admin-username=" + BOOTSTRAP_ADMIN,
                     "stockpilot.security.bootstrap-admin-password=" + BOOTSTRAP_PASSWORD,
+                    "stockpilot.ai.enabled=true",
+                    "stockpilot.ai.provider=CUSTOM",
+                    "stockpilot.ai.base-url=http://127.0.0.1:"
+                            + modelServer.getAddress().getPort()
+                            + "/v1",
+                    "stockpilot.ai.api-key=it-fake-key",
+                    "stockpilot.ai.model=it-fake-model",
+                    "stockpilot.ai.timeout=5s",
+                    "stockpilot.ai.max-tool-calls=6",
                     "stockpilot.cache.enabled=false",
                     "stockpilot.messaging.enabled=false");
         }

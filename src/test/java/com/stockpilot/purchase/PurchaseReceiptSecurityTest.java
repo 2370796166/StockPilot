@@ -9,10 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.stockpilot.inventory.mapper.InventoryBalanceMapper;
 import com.stockpilot.inventory.mapper.InventoryLedgerMapper;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
-import com.stockpilot.masterdata.location.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.mapper.SkuMapper;
+import com.stockpilot.masterdata.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.mapper.WarehouseMapper;
 import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
-import com.stockpilot.masterdata.sku.mapper.SkuMapper;
-import com.stockpilot.masterdata.warehouse.mapper.WarehouseMapper;
 import com.stockpilot.messaging.service.TransactionalOutboxApplicationService;
 import com.stockpilot.purchase.controller.PurchaseReceiptController;
 import com.stockpilot.purchase.mapper.PurchaseReceiptLineMapper;

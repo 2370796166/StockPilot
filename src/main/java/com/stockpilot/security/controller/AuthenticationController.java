@@ -1,10 +1,10 @@
 package com.stockpilot.security.controller;
 
-import com.stockpilot.security.auth.StockPilotPrincipal;
 import com.stockpilot.security.request.SecurityRequests;
 import com.stockpilot.security.service.AuthenticationApplicationService;
 import com.stockpilot.security.vo.SecurityVO;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -25,7 +25,7 @@ public class AuthenticationController {
 
     @GetMapping("/me")
     public ApiResponse<SecurityVO.CurrentUser> current(
-            @AuthenticationPrincipal StockPilotPrincipal principal) {
+            @AuthenticationPrincipal AuthenticatedActor principal) {
         return ApiResponse.success(authenticationService.current(principal));
     }
 }

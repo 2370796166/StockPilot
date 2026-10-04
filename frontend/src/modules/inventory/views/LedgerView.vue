@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { sourceFilters } from '@/shared/utils/source-filters'
+import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
 import { pageLedgers } from '@/modules/inventory/api'
 import EntityRef from '@/shared/components/EntityRef.vue'
@@ -20,7 +22,9 @@ const query = reactive<{
   skuId?: number
   businessType?: InventoryBusinessType
   businessNo: string
-}>({ page: 1, size: 20, businessNo: '' })
+  startDate?: string
+  endDate?: string
+}>({ page: 1, size: 20, ...sourceFilters() })
 const types: InventoryBusinessType[] = [
   'INITIALIZE',
   'PURCHASE_RECEIPT',
@@ -49,14 +53,19 @@ const labels: Record<InventoryBusinessType, string> = {
   INVENTORY_GAIN: '盘盈',
   INVENTORY_LOSS: '盘亏',
 }
+const listRequest = useLatestRequest()
 async function load() {
+  const sequence = listRequest.next()
   loading.value = true
   try {
     const result = await pageLedgers({ ...query, businessNo: query.businessNo || undefined })
+    if (!listRequest.isCurrent(sequence)) return
     records.value = result.records
     total.value = result.total
+  } catch {
+    // Request errors are displayed by the shared interceptor.
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(sequence)) loading.value = false
   }
 }
 function search() {
@@ -71,6 +80,8 @@ function reset() {
     skuId: undefined,
     businessType: undefined,
     businessNo: '',
+    startDate: undefined,
+    endDate: undefined,
   })
   cancelLiveSearch()
   void load()
@@ -111,6 +122,20 @@ onMounted(load)
               :key="type"
               :label="labels[type]"
               :value="type" /></el-select></el-form-item
+        ><el-form-item label="开始日期"
+          ><el-date-picker
+            v-model="query.startDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="开始日期"
+            clearable /></el-form-item
+        ><el-form-item label="结束日期"
+          ><el-date-picker
+            v-model="query.endDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="结束日期（含当日）"
+            clearable /></el-form-item
         ><el-form-item label="仓库"
           ><RemoteMasterDataSelect
             v-model="query.warehouseId"
@@ -118,6 +143,7 @@ onMounted(load)
         ><el-form-item label="库位"
           ><RemoteLocationSelect
             v-model="query.locationId"
+            style="width: 190px"
             :warehouse-id="query.warehouseId" /></el-form-item
         ><el-form-item label="SKU"
           ><RemoteMasterDataSelect

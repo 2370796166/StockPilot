@@ -1,5 +1,5 @@
 import type { PageResult } from '@/shared/types/api'
-import type { CountDetail, CountStatus, CountSummary } from '@/modules/documents/types'
+import type { CountDetail, CountStatus, CountSummary } from '@/modules/inventory-count/types'
 import { request } from '@/shared/utils/request'
 export const pageCounts = (params: {
   page: number

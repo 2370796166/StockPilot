@@ -1,9 +1,10 @@
 package com.stockpilot.security.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.stockpilot.security.api.SecurityErrorCode;
 import com.stockpilot.security.auth.JwtAuthenticationFilter;
+import com.stockpilot.shared.api.AccessErrorCode;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.api.ErrorCode;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.*;
 import org.springframework.http.*;
@@ -39,6 +40,8 @@ public class SecurityConfig {
                                                 "/swagger-ui.html")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/api/auth/me")
+                                        .authenticated()
+                                        .requestMatchers(HttpMethod.POST, "/api/ai/questions")
                                         .authenticated()
                                         .requestMatchers(
                                                 HttpMethod.PUT,
@@ -126,19 +129,16 @@ public class SecurityConfig {
                                                         write(
                                                                 r,
                                                                 json,
-                                                                SecurityErrorCode.UNAUTHENTICATED))
+                                                                AccessErrorCode.UNAUTHENTICATED))
                                         .accessDeniedHandler(
                                                 (q, r, x) ->
-                                                        write(
-                                                                r,
-                                                                json,
-                                                                SecurityErrorCode.FORBIDDEN)))
+                                                        write(r, json, AccessErrorCode.FORBIDDEN)))
                 .addFilterBefore(jwt, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
     private static void write(
-            jakarta.servlet.http.HttpServletResponse r, ObjectMapper json, SecurityErrorCode e)
+            jakarta.servlet.http.HttpServletResponse r, ObjectMapper json, ErrorCode e)
             throws java.io.IOException {
         r.setStatus(e.httpStatus().value());
         r.setContentType(MediaType.APPLICATION_JSON_VALUE);

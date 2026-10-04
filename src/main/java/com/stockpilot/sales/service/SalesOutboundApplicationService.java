@@ -6,7 +6,6 @@ import com.stockpilot.inventory.domain.InventoryBusinessType;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.service.OutboundInventoryCommand;
 import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
-import com.stockpilot.masterdata.vo.PageResult;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.messaging.service.TransactionalOutboxApplicationService;
 import com.stockpilot.sales.api.SalesOutboundErrorCode;
@@ -14,7 +13,8 @@ import com.stockpilot.sales.domain.*;
 import com.stockpilot.sales.mapper.*;
 import com.stockpilot.sales.request.SalesOutboundRequests;
 import com.stockpilot.sales.vo.*;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.util.*;
@@ -25,6 +25,33 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class SalesOutboundApplicationService {
+    @Transactional(readOnly = true)
+    public com.stockpilot.inventory.vo.InventoryFrozenSourcePageVO frozenSources(
+            com.stockpilot.inventory.request.InventoryDimensionQuery query, long page, long size) {
+        if (query == null) throw new IllegalArgumentException("Missing inventory scope");
+        com.stockpilot.inventory.request.InventoryDimensionQuery.validatePage(page, size);
+        var total = outbounds.selectFrozenTotal(query);
+        var sources = outbounds.selectFrozenSources(Page.of(page, size), query);
+        return new com.stockpilot.inventory.vo.InventoryFrozenSourcePageVO(
+                total,
+                new PageResult<>(
+                        sources.getRecords(),
+                        sources.getTotal(),
+                        sources.getCurrent(),
+                        sources.getSize()));
+    }
+
+    @Transactional(readOnly = true)
+    public SalesOutboundVO getByNumber(String number) {
+        if (number == null || !number.matches("[A-Za-z0-9_-]{2,64}"))
+            throw new IllegalArgumentException("Invalid document number");
+        Long id = outbounds.selectIdByNumber(number.toUpperCase(java.util.Locale.ROOT));
+        if (id == null)
+            throw new com.stockpilot.shared.exception.BusinessException(
+                    SalesOutboundErrorCode.NOT_FOUND);
+        return get(id);
+    }
+
     private final SalesOutboundMapper outbounds;
     private final SalesOutboundLineMapper lines;
     private final MasterDataReferenceApplicationService masterData;
@@ -47,7 +74,7 @@ public class SalesOutboundApplicationService {
     // 创建销售出库草稿：校验库存维度主数据和明细唯一性，但此时不冻结或扣减库存。
     // 单头与明细在同一事务保存，数据库唯一约束负责最终阻止重复单号。
     @Transactional
-    public SalesOutboundVO create(SalesOutboundRequests.Create request, StockPilotPrincipal actor) {
+    public SalesOutboundVO create(SalesOutboundRequests.Create request, AuthenticatedActor actor) {
         requireActor(actor);
         List<SalesOutboundLineEntity> newLines =
                 validateAndBuildLines(null, request.warehouseId(), request.lines());
@@ -72,7 +99,7 @@ public class SalesOutboundApplicationService {
     // 修改销售出库草稿：锁定单据、校验版本并整体替换明细；已冻结后的单据禁止修改。
     @Transactional
     public SalesOutboundVO update(
-            long id, SalesOutboundRequests.Update request, StockPilotPrincipal actor) {
+            long id, SalesOutboundRequests.Update request, AuthenticatedActor actor) {
         requireActor(actor);
         SalesOutboundEntity current = requireLocked(id);
         requireState(current, SalesOutboundStatus.DRAFT);
@@ -96,7 +123,7 @@ public class SalesOutboundApplicationService {
     // 每条冻结使用数据库原子数量条件，任一明细库存不足会回滚此前已经冻结的明细。
     @Transactional
     public SalesOutboundVO reserve(
-            long id, SalesOutboundRequests.Transition request, StockPilotPrincipal actor) {
+            long id, SalesOutboundRequests.Transition request, AuthenticatedActor actor) {
         requireActor(actor);
         SalesOutboundEntity current = requireLocked(id);
         if (current.getStatus() != SalesOutboundStatus.DRAFT) {
@@ -119,7 +146,7 @@ public class SalesOutboundApplicationService {
     // 审核销售出库单：仅确认 RESERVED 单据可以出库，不重复冻结也不提前扣减实际库存。
     @Transactional
     public SalesOutboundVO approve(
-            long id, SalesOutboundRequests.Transition request, StockPilotPrincipal actor) {
+            long id, SalesOutboundRequests.Transition request, AuthenticatedActor actor) {
         requireActor(actor);
         SalesOutboundEntity current = requireLocked(id);
         requireState(current, SalesOutboundStatus.RESERVED);
@@ -133,7 +160,7 @@ public class SalesOutboundApplicationService {
     // 完成销售出库：将已冻结数量从实际库存和冻结库存中同时扣除，可用库存不再变化。
     // 全部库存流水、单据完成状态及 Outbox 事件原子提交，确保核心扣减不依赖 RabbitMQ。
     @Transactional
-    public SalesOutboundVO complete(long id, StockPilotPrincipal actor) {
+    public SalesOutboundVO complete(long id, AuthenticatedActor actor) {
         requireActor(actor);
         SalesOutboundEntity current = requireLocked(id);
         if (current.getStatus() == SalesOutboundStatus.COMPLETED)
@@ -165,7 +192,7 @@ public class SalesOutboundApplicationService {
     // 取消尚未出库的销售单：RESERVED 或 APPROVED 状态均可释放冻结量并恢复可用量。
     // 已完成出库的单据不能通过普通取消反向恢复库存。
     @Transactional
-    public SalesOutboundVO cancel(long id, StockPilotPrincipal actor) {
+    public SalesOutboundVO cancel(long id, AuthenticatedActor actor) {
         requireActor(actor);
         SalesOutboundEntity current = requireLocked(id);
         if (current.getStatus() == SalesOutboundStatus.COMPLETED)
@@ -191,7 +218,7 @@ public class SalesOutboundApplicationService {
     public SalesOutboundVO get(long id) {
         SalesOutboundEntity outbound = outbounds.selectById(id);
         if (outbound == null) throw error(SalesOutboundErrorCode.NOT_FOUND);
-        return toDetail(outbound, lines.selectByOutboundId(id));
+        return SalesOutboundViewAssembler.detail(outbound, lines.selectByOutboundId(id));
     }
 
     // 分页查询销售出库摘要；查询单号与持久化单号采用相同的大写规范。
@@ -203,7 +230,7 @@ public class SalesOutboundApplicationService {
         IPage<SalesOutboundEntity> result =
                 outbounds.selectPage(Page.of(query.getPage(), query.getSize()), query);
         return new PageResult<>(
-                result.getRecords().stream().map(this::toSummary).toList(),
+                result.getRecords().stream().map(SalesOutboundViewAssembler::summary).toList(),
                 result.getTotal(),
                 result.getCurrent(),
                 result.getSize());
@@ -258,7 +285,7 @@ public class SalesOutboundApplicationService {
             SalesOutboundEntity outbound,
             SalesOutboundLineEntity line,
             InventoryBusinessType type,
-            StockPilotPrincipal actor) {
+            AuthenticatedActor actor) {
         return new OutboundInventoryCommand(
                 outbound.getWarehouseId(),
                 line.getLocationId(),
@@ -309,7 +336,7 @@ public class SalesOutboundApplicationService {
             throw error(SalesOutboundErrorCode.CONCURRENT_MODIFICATION);
     }
 
-    private void requireActor(StockPilotPrincipal actor) {
+    private void requireActor(AuthenticatedActor actor) {
         if (actor == null
                 || actor.userId() == null
                 || actor.userId() <= 0
@@ -337,56 +364,6 @@ public class SalesOutboundApplicationService {
                     SalesOutboundErrorCode.INVALID_LINE, "出库数量必须大于0，且最多15位整数和4位小数");
         }
         return value.setScale(4);
-    }
-
-    private SalesOutboundVO toDetail(
-            SalesOutboundEntity value, List<SalesOutboundLineEntity> outboundLines) {
-        return new SalesOutboundVO(
-                value.getId(),
-                value.getOutboundNo(),
-                value.getWarehouseId(),
-                value.getStatus(),
-                value.getRemark(),
-                value.getCreatedBy(),
-                value.getCreatedByName(),
-                value.getReservedBy(),
-                value.getReservedByName(),
-                value.getReservedAt(),
-                value.getApprovedBy(),
-                value.getApprovedByName(),
-                value.getApprovedAt(),
-                value.getCompletedBy(),
-                value.getCompletedByName(),
-                value.getCompletedAt(),
-                value.getCancelledBy(),
-                value.getCancelledByName(),
-                value.getCancelledAt(),
-                value.getVersion(),
-                value.getCreatedAt(),
-                value.getUpdatedAt(),
-                outboundLines.stream()
-                        .map(
-                                line ->
-                                        new SalesOutboundVO.Line(
-                                                line.getId(),
-                                                line.getLineNo(),
-                                                line.getLocationId(),
-                                                line.getSkuId(),
-                                                line.getQuantity()))
-                        .toList());
-    }
-
-    private SalesOutboundSummaryVO toSummary(SalesOutboundEntity value) {
-        return new SalesOutboundSummaryVO(
-                value.getId(),
-                value.getOutboundNo(),
-                value.getWarehouseId(),
-                value.getStatus(),
-                value.getRemark(),
-                value.getCreatedByName(),
-                value.getVersion(),
-                value.getCreatedAt(),
-                value.getUpdatedAt());
     }
 
     private BusinessException error(SalesOutboundErrorCode code) {

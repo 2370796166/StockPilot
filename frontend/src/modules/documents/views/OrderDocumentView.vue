@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { sourceFilters } from '@/shared/utils/source-filters'
+import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { computed, onMounted, reactive, ref } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -53,7 +55,7 @@ const editing = ref<DocumentDetail | null>(null),
 const query = reactive<{ page: number; size: number; no: string; warehouseId?: number; status?: DocumentStatus }>({
   page: 1,
   size: 20,
-  no: '',
+  no: sourceFilters().businessNo,
 })
 const form = reactive<{ no: string; warehouseId?: number; remark: string; lines: DocumentLine[] }>({
   no: '',
@@ -70,7 +72,9 @@ const rules: FormRules = {
   remark: [{ max: 255, message: '备注不能超过 255 个字符', trigger: 'blur' }],
 }
 const salesStatuses: DocumentStatus[] = ['DRAFT', 'RESERVED', 'APPROVED', 'COMPLETED', 'CANCELLED']
+const listRequest = useLatestRequest()
 async function load() {
+  const sequence = listRequest.next()
   loading.value = true
   try {
     const result = await pageDocuments(props.kind, {
@@ -80,10 +84,13 @@ async function load() {
       warehouseId: query.warehouseId,
       status: query.status,
     })
+    if (!listRequest.isCurrent(sequence)) return
     records.value = result.records
     total.value = result.total
+  } catch {
+    // Request errors are displayed by the shared interceptor.
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(sequence)) loading.value = false
   }
 }
 function search() {
@@ -95,25 +102,40 @@ function reset() {
   cancelLiveSearch()
   void load()
 }
+const documentRequest = useLatestRequest()
 function openCreate() {
+  documentRequest.invalidate()
   editing.value = null
   Object.assign(form, { no: '', warehouseId: undefined, remark: '', lines: [{ locationId: 0, skuId: 0, quantity: 1 }] })
   dialogVisible.value = true
 }
 async function openEdit(row: DocumentSummary) {
-  const item = await getDocument(props.kind, row.id)
-  editing.value = item
-  Object.assign(form, {
-    no: item.no,
-    warehouseId: item.warehouseId,
-    remark: item.remark || '',
-    lines: item.lines.map((line) => ({ ...line })),
-  })
-  dialogVisible.value = true
+  const sequence = documentRequest.next()
+  try {
+    const item = await getDocument(props.kind, row.id)
+    if (!documentRequest.isCurrent(sequence)) return
+    editing.value = item
+    Object.assign(form, {
+      no: item.no,
+      warehouseId: item.warehouseId,
+      remark: item.remark || '',
+      lines: item.lines.map((line) => ({ ...line })),
+    })
+    dialogVisible.value = true
+  } catch {
+    // Request errors are displayed by the shared interceptor.
+  }
 }
 async function openDetail(row: DocumentSummary) {
-  detail.value = await getDocument(props.kind, row.id)
-  detailVisible.value = true
+  const sequence = documentRequest.next()
+  try {
+    const item = await getDocument(props.kind, row.id)
+    if (!documentRequest.isCurrent(sequence)) return
+    detail.value = item
+    detailVisible.value = true
+  } catch {
+    // Request errors are displayed by the shared interceptor.
+  }
 }
 // 保存草稿前同时校验单头和所有明细；编辑请求携带版本，由后端乐观锁负责最终并发控制。
 async function submit() {
@@ -171,18 +193,16 @@ function actions(row: DocumentSummary) {
 // 库存相关状态动作执行前二次确认，并以 actionId 阻止用户重复点击同一关键操作。
 async function execute(row: DocumentSummary, item: ReturnType<typeof actions>[number]) {
   if (actionId.value) return
+  actionId.value = row.id
   try {
     await ElMessageBox.confirm(`确认执行“${item.label}”吗？该操作将按后端状态机处理库存。`, '关键操作确认', {
       type: 'warning',
     })
-  } catch {
-    return
-  }
-  actionId.value = row.id
-  try {
     await transitionDocument(props.kind, row.id, item.action, item.version ? row.version : undefined)
     ElMessage.success(`${item.label}成功`)
     await load()
+  } catch {
+    // Confirmation cancellation is expected; HTTP errors are shown by the request interceptor.
   } finally {
     actionId.value = undefined
   }

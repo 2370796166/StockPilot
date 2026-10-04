@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { searchMasterDataOptions } from '@/modules/master-data/api'
+import { searchMasterDataOptions } from '@/modules/master-data/reference-options'
 import type { MasterDataRecord, MasterDataResource } from '@/modules/master-data/types'
+import { getMasterData } from '@/modules/master-data/api'
 
 const props = withDefaults(
   defineProps<{ modelValue?: number; resource: MasterDataResource; placeholder?: string; disabled?: boolean }>(),
@@ -18,21 +19,31 @@ async function load(keyword = '') {
   loading.value = true
   try {
     const result = await searchMasterDataOptions(props.resource, keyword)
-    if (sequence === requestSequence) options.value = result.records
+    if (sequence !== requestSequence) return
+    const records = [...result.records]
+    if (props.modelValue && !records.some((item) => item.id === props.modelValue))
+      records.unshift(await getMasterData(props.resource, props.modelValue))
+    if (sequence === requestSequence) options.value = records
+  } catch {
+    // The shared request interceptor already displays the error.
+    if (sequence === requestSequence) options.value = []
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
 }
 function search(keyword = '') {
   if (timer) clearTimeout(timer)
+  ++requestSequence
+  options.value = []
   timer = setTimeout(() => {
     void load(keyword)
   }, 250)
 }
 
 watch(
-  () => props.resource,
+  () => [props.resource, props.modelValue],
   () => {
+    if (timer) clearTimeout(timer)
     options.value = []
     void load()
   },
@@ -42,6 +53,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
+  ++requestSequence
 })
 </script>
 <template>

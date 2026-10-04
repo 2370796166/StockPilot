@@ -3,7 +3,9 @@ package com.stockpilot.purchase;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -11,17 +13,18 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.stockpilot.inventory.domain.InventoryBalanceEntity;
 import com.stockpilot.inventory.mapper.InventoryBalanceMapper;
 import com.stockpilot.inventory.mapper.InventoryLedgerMapper;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.masterdata.domain.MasterDataStatus;
-import com.stockpilot.masterdata.location.domain.WarehouseLocationEntity;
-import com.stockpilot.masterdata.location.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.domain.SkuEntity;
+import com.stockpilot.masterdata.domain.WarehouseEntity;
+import com.stockpilot.masterdata.domain.WarehouseLocationEntity;
+import com.stockpilot.masterdata.mapper.SkuMapper;
+import com.stockpilot.masterdata.mapper.WarehouseLocationMapper;
+import com.stockpilot.masterdata.mapper.WarehouseMapper;
 import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
-import com.stockpilot.masterdata.sku.domain.SkuEntity;
-import com.stockpilot.masterdata.sku.mapper.SkuMapper;
-import com.stockpilot.masterdata.warehouse.domain.WarehouseEntity;
-import com.stockpilot.masterdata.warehouse.mapper.WarehouseMapper;
 import com.stockpilot.messaging.service.TransactionalOutboxApplicationService;
 import com.stockpilot.purchase.domain.PurchaseReceiptEntity;
 import com.stockpilot.purchase.domain.PurchaseReceiptLineEntity;
@@ -30,7 +33,7 @@ import com.stockpilot.purchase.mapper.PurchaseReceiptLineMapper;
 import com.stockpilot.purchase.mapper.PurchaseReceiptMapper;
 import com.stockpilot.purchase.request.PurchaseReceiptRequests;
 import com.stockpilot.purchase.service.PurchaseReceiptApplicationService;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.util.List;
@@ -45,8 +48,10 @@ class PurchaseReceiptApplicationServiceTest {
     private WarehouseMapper warehouses;
     private WarehouseLocationMapper locations;
     private SkuMapper skus;
+    private InventoryBalanceMapper balances;
+    private InventoryLedgerMapper ledgers;
     private PurchaseReceiptApplicationService service;
-    private final StockPilotPrincipal operator = new StockPilotPrincipal(7L, "operator");
+    private final AuthenticatedActor operator = new AuthenticatedActor(7L, "operator");
 
     @BeforeEach
     void setUp() {
@@ -59,11 +64,10 @@ class PurchaseReceiptApplicationServiceTest {
         when(warehouses.selectById(1L)).thenReturn(warehouse(1L, MasterDataStatus.ENABLED));
         when(locations.selectById(2L)).thenReturn(location(2L, 1L, MasterDataStatus.ENABLED));
         when(skus.selectById(3L)).thenReturn(sku(3L, MasterDataStatus.ENABLED));
+        balances = mock(InventoryBalanceMapper.class);
+        ledgers = mock(InventoryLedgerMapper.class);
         InventoryMutationApplicationService inventory =
-                new InventoryMutationApplicationService(
-                        mock(InventoryBalanceMapper.class),
-                        mock(InventoryLedgerMapper.class),
-                        masterData);
+                new InventoryMutationApplicationService(balances, ledgers, masterData);
         service =
                 new PurchaseReceiptApplicationService(
                         receipts,
@@ -96,6 +100,51 @@ class PurchaseReceiptApplicationServiceTest {
         verify(warehouses).selectById(1L);
         verify(locations).selectById(2L);
         verify(skus).selectById(3L);
+    }
+
+    @Test
+    void completionStillRejectsDisabledSkuBeforeWritingInventoryOrCompletingDocument() {
+        when(receipts.selectByIdForUpdate(11L))
+                .thenReturn(receipt(11L, PurchaseReceiptStatus.APPROVED, 2));
+        when(lines.selectByReceiptId(11L)).thenReturn(List.of(line(11L, "2.0000")));
+        when(skus.selectById(3L)).thenReturn(sku(3L, MasterDataStatus.DISABLED));
+        BusinessException error =
+                assertThrows(BusinessException.class, () -> service.complete(11L, operator));
+        assertEquals("MASTER_DATA_404", error.getErrorCode().code());
+        verify(warehouses).selectById(1L);
+        verify(locations).selectById(2L);
+        verify(skus).selectById(3L);
+        verify(receipts, never()).complete(anyLong(), anyInt(), anyLong(), anyString());
+        verify(balances, never()).insertZeroIfAbsent(anyLong(), anyLong(), anyLong());
+        verify(ledgers, never()).insert(any());
+    }
+
+    @Test
+    void completionChecksEachMasterRecordOnceAndStillWritesInventoryAndLedger() {
+        when(receipts.selectByIdForUpdate(11L))
+                .thenReturn(receipt(11L, PurchaseReceiptStatus.APPROVED, 2));
+        when(lines.selectByReceiptId(11L)).thenReturn(List.of(line(11L, "2.0000")));
+        InventoryBalanceEntity balance = new InventoryBalanceEntity();
+        balance.setId(9L);
+        balance.setWarehouseId(1L);
+        balance.setLocationId(2L);
+        balance.setSkuId(3L);
+        balance.setActualQuantity(BigDecimal.ZERO);
+        balance.setAvailableQuantity(BigDecimal.ZERO);
+        balance.setFrozenQuantity(BigDecimal.ZERO);
+        balance.setVersion(0);
+        when(balances.selectByDimensionForUpdate(1L, 2L, 3L)).thenReturn(balance);
+        when(balances.updateStateIfVersionMatches(anyLong(), anyInt(), any())).thenReturn(1);
+        when(balances.selectById(9L)).thenReturn(balance);
+        when(ledgers.insert(any())).thenReturn(1);
+        when(receipts.complete(11L, 2, 7L, "operator")).thenReturn(1);
+        when(receipts.selectById(11L)).thenReturn(receipt(11L, PurchaseReceiptStatus.COMPLETED, 3));
+        assertEquals(PurchaseReceiptStatus.COMPLETED, service.complete(11L, operator).status());
+        verify(warehouses).selectById(1L);
+        verify(locations).selectById(2L);
+        verify(skus).selectById(3L);
+        verify(balances).updateStateIfVersionMatches(anyLong(), anyInt(), any());
+        verify(ledgers).insert(any());
     }
 
     @Test
@@ -153,7 +202,7 @@ class PurchaseReceiptApplicationServiceTest {
                 service.approve(
                                 11L,
                                 new PurchaseReceiptRequests.Transition(1),
-                                new StockPilotPrincipal(8L, "auditor"))
+                                new AuthenticatedActor(8L, "auditor"))
                         .status());
     }
 

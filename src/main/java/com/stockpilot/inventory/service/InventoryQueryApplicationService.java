@@ -10,7 +10,7 @@ import com.stockpilot.inventory.request.InventoryBalancePageQuery;
 import com.stockpilot.inventory.request.InventoryLedgerPageQuery;
 import com.stockpilot.inventory.vo.InventoryBalanceVO;
 import com.stockpilot.inventory.vo.InventoryLedgerVO;
-import com.stockpilot.masterdata.vo.PageResult;
+import com.stockpilot.shared.api.PageResult;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +18,54 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 public class InventoryQueryApplicationService {
+    @Transactional(readOnly = true, timeout = 10)
+    public com.stockpilot.inventory.vo.InventoryPeriodSummaryVO periodSummary(
+            com.stockpilot.inventory.request.InventoryPeriodQuery query) {
+        if (query == null) throw new IllegalArgumentException("Missing inventory period");
+        var movements = java.util.List.copyOf(ledgers.selectPeriodTotals(query));
+        java.math.BigDecimal actual = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal available = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal frozen = java.math.BigDecimal.ZERO;
+        long count = 0;
+        for (var movement : movements) {
+            count = Math.addExact(count, movement.ledgerCount());
+            actual = actual.add(movement.changeActualQuantity());
+            available = available.add(movement.changeAvailableQuantity());
+            frozen = frozen.add(movement.changeFrozenQuantity());
+        }
+        return new com.stockpilot.inventory.vo.InventoryPeriodSummaryVO(
+                movements, count, actual, available, frozen);
+    }
+
+    public Optional<com.stockpilot.inventory.vo.InventoryWarehouseBalanceVO> dimensionTotals(
+            com.stockpilot.inventory.request.InventoryDimensionQuery query) {
+        if (query == null) throw new IllegalArgumentException("Missing inventory dimension");
+        return Optional.ofNullable(balances.selectDimensionTotals(query));
+    }
+
+    public Optional<InventoryLedgerVO> findLedger(String ledgerNo) {
+        if (ledgerNo == null || !ledgerNo.matches("[A-Za-z0-9_-]{2,64}"))
+            throw new IllegalArgumentException("Invalid ledger number");
+        return Optional.ofNullable(ledgers.selectByLedgerNo(ledgerNo))
+                .map(InventoryViewConverter::ledger);
+    }
+
+    // Both reads share a short read-only transaction; aggregation covers all matching locations.
+    public com.stockpilot.inventory.vo.InventoryBalanceOverviewVO balanceOverview(
+            InventoryBalancePageQuery query) {
+        if (query.getSkuId() == null
+                || query.getSkuId() <= 0
+                || query.getPage() < 1
+                || query.getSize() < 1
+                || query.getSize() > 20)
+            throw new IllegalArgumentException("Restricted balance query");
+        var page = balances.selectWarehouseTotals(Page.of(query.getPage(), query.getSize()), query);
+        return new com.stockpilot.inventory.vo.InventoryBalanceOverviewVO(
+                new PageResult<>(
+                        page.getRecords(), page.getTotal(), page.getCurrent(), page.getSize()),
+                pageBalances(query));
+    }
+
     private final InventoryBalanceMapper balances;
     private final InventoryLedgerMapper ledgers;
 
@@ -40,6 +88,8 @@ public class InventoryQueryApplicationService {
 
     // 分页查询追加式库存流水，用于追溯每次业务动作的前值、差量、后值和版本链。
     public PageResult<InventoryLedgerVO> pageLedgers(InventoryLedgerPageQuery query) {
+        if (query == null || !query.isPeriodValid())
+            throw new IllegalArgumentException("Invalid ledger period");
         IPage<InventoryLedgerEntity> page =
                 ledgers.selectInventoryPage(Page.of(query.getPage(), query.getSize()), query);
         return new PageResult<>(

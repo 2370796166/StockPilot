@@ -1,12 +1,12 @@
 package com.stockpilot.purchase.controller;
 
-import com.stockpilot.masterdata.vo.PageResult;
 import com.stockpilot.purchase.request.PurchaseReceiptRequests;
 import com.stockpilot.purchase.service.PurchaseReceiptApplicationService;
 import com.stockpilot.purchase.vo.PurchaseReceiptSummaryVO;
 import com.stockpilot.purchase.vo.PurchaseReceiptVO;
-import com.stockpilot.security.auth.StockPilotPrincipal;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -48,7 +48,7 @@ public class PurchaseReceiptController {
     @PostMapping
     public ApiResponse<PurchaseReceiptVO> create(
             @Valid @RequestBody PurchaseReceiptRequests.Create request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(purchaseReceiptService.create(request, actor));
     }
 
@@ -57,7 +57,7 @@ public class PurchaseReceiptController {
     public ApiResponse<PurchaseReceiptVO> update(
             @PathVariable @Positive long id,
             @Valid @RequestBody PurchaseReceiptRequests.Update request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(purchaseReceiptService.update(id, request, actor));
     }
 
@@ -66,7 +66,7 @@ public class PurchaseReceiptController {
     public ApiResponse<PurchaseReceiptVO> submit(
             @PathVariable @Positive long id,
             @Valid @RequestBody PurchaseReceiptRequests.Transition request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(purchaseReceiptService.submit(id, request, actor));
     }
 
@@ -75,14 +75,14 @@ public class PurchaseReceiptController {
     public ApiResponse<PurchaseReceiptVO> approve(
             @PathVariable @Positive long id,
             @Valid @RequestBody PurchaseReceiptRequests.Transition request,
-            @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(purchaseReceiptService.approve(id, request, actor));
     }
 
     @PreAuthorize("hasAuthority('PURCHASE_RECEIPT_COMPLETE')")
     @PostMapping("/{id}/complete")
     public ApiResponse<PurchaseReceiptVO> complete(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal actor) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor actor) {
         return ApiResponse.success(purchaseReceiptService.complete(id, actor));
     }
 }

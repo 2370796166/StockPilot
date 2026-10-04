@@ -6,8 +6,8 @@ import static org.mockito.Mockito.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.masterdata.domain.MasterDataStatus;
-import com.stockpilot.masterdata.sku.vo.SkuVO;
 import com.stockpilot.masterdata.vo.MasterDataVO;
+import com.stockpilot.masterdata.vo.SkuVO;
 import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

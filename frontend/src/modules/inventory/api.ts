@@ -16,4 +16,6 @@ export const pageLedgers = (params: {
   skuId?: number
   businessType?: InventoryBusinessType
   businessNo?: string
+  startDate?: string
+  endDate?: string
 }) => request<PageResult<InventoryLedger>>({ method: 'GET', url: '/inventory/ledgers', params })

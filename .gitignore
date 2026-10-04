@@ -22,3 +22,11 @@ AGENTS.md
 docs/progress.md
 docs/performance.md
 performance/
+.acceptance-runtime/
+acceptance-edit.tmp.cjs
+
+# Local development history and one-off acceptance evidence
+docs/acceptance/
+docs/architecture/decisions.md
+docs/architecture/optimization-review.md
+scripts/acceptance/

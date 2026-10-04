@@ -4,8 +4,6 @@ import com.stockpilot.shared.api.ErrorCode;
 import org.springframework.http.HttpStatus;
 
 public enum SecurityErrorCode implements ErrorCode {
-    UNAUTHENTICATED("SECURITY_401", "未登录或访问令牌无效", HttpStatus.UNAUTHORIZED),
-    FORBIDDEN("SECURITY_403", "无权访问该资源", HttpStatus.FORBIDDEN),
     INVALID_CREDENTIALS("AUTH_401", "用户名或密码错误", HttpStatus.UNAUTHORIZED),
     NOT_FOUND("SECURITY_404", "安全资源不存在", HttpStatus.NOT_FOUND),
     DUPLICATE("SECURITY_409", "编码或用户名已存在", HttpStatus.CONFLICT),

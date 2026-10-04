@@ -11,6 +11,32 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface SalesOutboundMapper {
+    String FROZEN_SCOPE =
+            """
+        FROM sales_outbound_order o JOIN sales_outbound_line l ON l.outbound_id = o.id
+        WHERE o.status IN ('RESERVED', 'APPROVED')
+          AND l.sku_id = #{query.skuId} AND l.warehouse_id = #{query.warehouseId}
+        <if test="query.locationId != null">AND l.location_id = #{query.locationId}</if>
+        """;
+
+    @Select("<script>SELECT COALESCE(SUM(l.quantity), 0) " + FROZEN_SCOPE + "</script>")
+    java.math.BigDecimal selectFrozenTotal(
+            @Param("query") com.stockpilot.inventory.request.InventoryDimensionQuery query);
+
+    @Select(
+            """
+        <script>SELECT 'SALES' AS document_type, o.outbound_no AS business_no,
+          l.warehouse_id, l.location_id, l.sku_id, o.status, l.quantity, o.reserved_at
+        """
+                    + FROZEN_SCOPE
+                    + " ORDER BY o.id DESC, l.id DESC</script>")
+    IPage<com.stockpilot.inventory.vo.InventoryFrozenSourceVO> selectFrozenSources(
+            Page<com.stockpilot.inventory.vo.InventoryFrozenSourceVO> page,
+            @Param("query") com.stockpilot.inventory.request.InventoryDimensionQuery query);
+
+    @Select("SELECT id FROM sales_outbound_order WHERE outbound_no = #{number}")
+    Long selectIdByNumber(String number);
+
     String COLUMNS =
             """
             id, outbound_no, warehouse_id, status, remark,

@@ -1,149 +1,80 @@
-# StockPilot 核心业务端到端测试
+# 测试与构建检查
 
-## 目标与边界
+测试命令从项目根目录执行，前端命令在 `frontend` 目录执行。不要把模拟数据库、模型或组件测试当作真实基础设施与浏览器验收。
 
-核心端到端测试验证真实 HTTP 接口、Spring Security、Service、本地事务、MyBatis、Flyway 和 MySQL 之间的完整调用链，不通过 Service 直调或手工 SQL 跳过业务规则。
+## 常规检查
 
-测试入口为：
-
-```text
-src/test/java/com/stockpilot/e2e/CoreBusinessE2EMySqlIT.java
-```
-
-本测试不增加业务功能，也不替代采购、销售、调拨、盘点和消息模块已有的事务、并发及故障注入集成测试。
-
-## 覆盖流程
-
-单条场景按以下顺序执行：
-
-1. 使用测试环境引导管理员登录，并通过 `/api/auth/me` 验证 `ADMIN` 角色。
-2. 通过安全管理接口创建一个没有角色和权限的用户，并验证该用户可以登录但没有业务授权。
-3. 通过基础资料接口创建仓库、库位、SKU 和供应商。
-4. 创建采购入库草稿，依次提交、审核和完成。
-5. 在采购审核阶段使用无权限用户调用审核接口，断言返回 HTTP 403，并再次查询单据确认状态和版本均未变化。
-6. 查询采购完成后的库存余额和 `PURCHASE_RECEIPT` 流水。
-7. 重复调用采购完成接口，断言返回 HTTP 409，余额和流水数量不变。
-8. 创建销售出库草稿并冻结库存，查询冻结后的余额和 `OUTBOUND_FREEZE` 流水。
-9. 使用相同版本重复冻结，断言返回 HTTP 409，冻结量和流水数量不变。
-10. 审核并完成销售出库，查询最终余额及 `OUTBOUND_SHIP` 流水。
-11. 重复调用销售完成接口，断言返回 HTTP 409，最终余额和流水数量不变。
-12. 最终重新查询采购单和销售单，确认两者均为 `COMPLETED`。
-
-关键数量采用以下固定场景，便于失败时人工复核：
-
-| 阶段 | actual | available | frozen |
-|---|---:|---:|---:|
-| 采购入库 10 前 | 0 | 0 | 0 |
-| 采购完成后 | 10 | 10 | 0 |
-| 销售冻结 4 后 | 10 | 6 | 4 |
-| 销售出库完成后 | 6 | 6 | 0 |
-
-每个余额断言都同时校验：
-
-```text
-actual = available + frozen
-actual >= 0
-available >= 0
-frozen >= 0
-```
-
-采购、冻结和出库流水还会验证三种数量的前值、变化值、后值，以及余额版本链 `0 → 1 → 2 → 3`。
-
-## 测试数据与清理
-
-测试启动前自动执行以下操作：
-
-1. 删除上次异常退出可能遗留的 `stockpilot_core_e2e_it` 数据库。
-2. 创建新的 UTF-8 MySQL 专用数据库。
-3. 从空 schema 执行当前全部 Flyway 迁移。
-4. 使用测试专用配置引导管理员；Redis 缓存和 RabbitMQ 消费保持关闭。
-5. 通过真实 HTTP API 创建本次业务数据。
-
-测试结束后自动删除 `stockpilot_core_e2e_it`。即使前一次进程异常中断，下一次初始化也会先清理同名专用数据库，因此固定测试编码和单号可以重复使用。测试不会修改 `stockpilot` 开发库，也不要求人工清表或直接插入库存。
-
-默认连接 Compose MySQL：
-
-```text
-jdbc:mysql://localhost:3307/
-root / root_dev_only
-```
-
-如本地集成测试管理员连接不同，可使用现有环境变量：
+后端常规测试不需要 MySQL、Redis 或 RabbitMQ：
 
 ```powershell
-$env:STOCKPILOT_IT_ADMIN_URL="jdbc:mysql://localhost:3307/?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false"
-$env:STOCKPILOT_IT_ADMIN_USER="root"
-$env:STOCKPILOT_IT_ADMIN_PASSWORD="替换为本地测试密码"
+mvn -s .mvn/settings.xml clean test
+mvn -s .mvn/settings.xml spotless:check
+mvn -s .mvn/settings.xml -DskipTests package
 ```
 
-## 执行方法
+最后一条只打包，不运行测试；应在常规测试通过后执行。报告位于 `target/surefire-reports`，构建产物位于 `target`，均不提交。
 
-先确认 MySQL 正常：
+前端：
+
+```powershell
+cd frontend
+npm ci
+npm run test
+npm run typecheck
+npm run lint
+npm run format:check
+npm run build
+```
+
+`frontend/tests` 是可重复执行的回归测试源码，应保留；`node_modules`、`dist` 和测试运行产物不提交。测试覆盖请求竞态、详情回显、防重复动作、登录状态、资料缓存和 AI 页面等。前端生产构建不等于已有生产托管方案。
+
+## 真实 MySQL 集成测试
+
+先启动 MySQL 并等待 healthy：
 
 ```powershell
 docker compose up -d mysql
 docker compose ps
-```
-
-只运行核心 HTTP 端到端场景：
-
-```powershell
-mvn -s .mvn/settings.xml -Pmysql-it "-Dit.test=CoreBusinessE2EMySqlIT" failsafe:integration-test failsafe:verify
-```
-
-运行全部常规测试和 MySQL 集成测试：
-
-```powershell
-mvn -s .mvn/settings.xml clean test
 mvn -s .mvn/settings.xml -Pmysql-it verify
 ```
 
-`mysql-it` profile 会自动发现 `*MySqlIT`，因此核心端到端测试已纳入现有 MySQL 集成测试体系。若 Windows 上已有应用进程占用后端 JAR，`clean` 或 `verify` 的打包阶段可能在测试前失败；应先由操作者确认并停止该应用进程，不得把非 clean 结果描述为干净构建通过。
-
-## 失败诊断
-
-HTTP 调用失败时，断言会输出：
-
-- HTTP 方法和路径；
-- 预期与实际状态码；
-- 完整 API 响应体。
-
-场景内任一断言失败时，还会追加专用测试库中的只读诊断快照：
-
-- 采购单号、状态和版本；
-- 销售单号、状态和版本；
-- 库存三数量和余额版本；
-- 流水业务类型、业务单号、三数量前值/变化值/后值及版本链。
-
-诊断 SQL 只读取专用测试库，不用于准备业务状态或修正测试数据。
-
-## MQ 异步测试约定
-
-核心采购和销售库存正确性必须在 MySQL 本地事务提交时成立，不依赖 RabbitMQ，因此本核心端到端场景显式关闭消息消费者，不使用固定 `sleep`。
-
-RabbitMQ 发布、重试和死信由 `MessagingRabbitIT` 独立验证。异步断言必须使用带截止时间的条件轮询；测试拓扑应与正在运行的开发应用隔离，避免两个消费者竞争固定业务队列。执行命令见 README 中的 `rabbit-it` 说明。
-
-## 2026-08-24 本次真实结果
-
-执行环境：Amazon Corretto JDK 17.0.15、Maven 3.9.4、Compose MySQL 8.0。
-
-执行命令：
+默认管理员连接 `localhost:3307`，`root / root_dev_only`。如果使用其他端口或凭据，在运行测试的终端设置：
 
 ```powershell
-mvn -s .mvn/settings.xml -Pmysql-it "-Dit.test=CoreBusinessE2EMySqlIT" failsafe:integration-test failsafe:verify
+$env:STOCKPILOT_IT_ADMIN_URL="jdbc:mysql://localhost:33307/?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false"
+$env:STOCKPILOT_IT_ADMIN_USER="root"
+$env:STOCKPILOT_IT_ADMIN_PASSWORD="替换为本地测试密码"
+mvn -s .mvn/settings.xml -Pmysql-it verify
 ```
 
-结果：测试专用数据库从空 schema 成功执行 10 个 Flyway 迁移至 `0.9.0`；核心 HTTP 端到端测试 1 个，0 失败、0 错误、0 跳过，构建成功。测试后专用数据库已自动删除。
+每类 IT 自动创建随机后缀的专用 schema，执行完整 Flyway 迁移，测试后只删除本次专用库，不使用 `stockpilot` 开发库。管理员账号须有建库和删库权限。测试显式隔离开发 `.env` 的缓存、消息和管理员引导设置。
 
-随后执行常规测试和全部 MySQL 集成测试：
+覆盖采购、销售、调拨、盘点、消息事务以及真实 JWT/HTTP 核心链路，验证数量、流水、并发、幂等与回滚。只执行核心 HTTP 场景可用：
 
 ```powershell
-mvn -s .mvn/settings.xml test
-mvn -s .mvn/settings.xml -Pmysql-it "-Dit.test=*MySqlIT" failsafe:integration-test failsafe:verify
+mvn -s .mvn/settings.xml -Pmysql-it "-Dit.test=CoreBusinessE2EMySqlIT" verify
 ```
 
-常规测试 83 个全部通过；MySQL 集成测试 31 个全部通过，其中包含核心 HTTP 端到端 1、采购 4、销售 9、调拨 7、盘点 7、消息事务 3，均为 0 失败、0 错误、0 跳过。六个专用测试库均从空 schema 迁移至 `0.9.0` 并在测试后删除。
+AI HTTP 测试使用本机假模型，不能证明真实供应商兼容性。异常退出可能留下本次随机库，应核实归属后清理。
 
-`mvn -s .mvn/settings.xml clean test` 已执行但未进入编译和测试阶段：PID 17264 的既有后端进程占用 `target/stockpilot-backend-0.0.1-SNAPSHOT.jar`，Maven Clean Plugin 无法删除该文件。本轮未擅自停止该进程，因此不能声称干净构建通过；失败后补跑的非 clean 常规测试仍为 83 个全部通过。
+## 真实 RabbitMQ 集成测试
 
-本结果不代表浏览器 UI 自动化已完成，也不代表未经本测试覆盖的调拨、盘点或人工补偿管理流程完成了端到端验证。
+```powershell
+docker compose up -d mysql rabbitmq
+docker compose ps
+docker compose exec rabbitmq rabbitmqctl add_vhost /stockpilot-it
+docker compose exec rabbitmq rabbitmqctl set_permissions -p /stockpilot-it stockpilot ".*" ".*" ".*"
+mvn -s .mvn/settings.xml -Prabbit-it verify
+```
+
+首次运行才需要创建 `/stockpilot-it`，已存在时跳过 `add_vhost`。开发 vhost `/stockpilot` 与测试 vhost 独立，Compose 不自动创建测试 vhost。
+
+测试 RabbitMQ 连接可通过 `STOCKPILOT_IT_RABBIT_HOST/PORT/USER/PASSWORD/VHOST` 覆盖，默认 `localhost:5673`、`stockpilot / stockpilot_dev`、`/stockpilot-it`。交换机和队列使用本次随机库名前缀，不清理开发队列。验证发布确认、重试、死信、未知事件版本和幂等；测试拓扑残留需核实归属后清理。
+
+## 验证边界
+
+Compose 静态检查使用 `docker compose config --quiet`。它不要求引擎运行，也不能证明容器已启动或数据库 SQL 可执行。
+
+2026-10-04 本次整理：后端 166 项常规测试、前端 47 项测试通过；后端格式与 JAR、前端类型/Lint/格式/生产构建、Compose 静态配置检查通过。前端测试首次因沙箱子进程权限失败，获准重跑后通过。构建保留第三方 PURE 注释和大分块提示。
+
+本次 Docker 引擎未运行，真实 MySQL/RabbitMQ 集成测试、空卷初始化、应用真实接口、浏览器和真实模型联调均**未验证**。本次未修改业务源码、迁移 SQL 或 Compose；这些源码包含此前尚未提交的业务改动。

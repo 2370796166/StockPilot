@@ -7,6 +7,9 @@ import com.stockpilot.inventory.count.request.InventoryCountRequests;
 import org.apache.ibatis.annotations.*;
 
 public interface InventoryCountMapper {
+    @Select("SELECT id FROM inventory_count_order WHERE count_no = #{number}")
+    Long selectIdByNumber(String number);
+
     String COLUMNS =
             """
         id,count_no,warehouse_id,status,remark,created_by,created_by_name,

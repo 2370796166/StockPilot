@@ -1,5 +1,5 @@
 import type { PageResult } from '@/shared/types/api'
-import type { TransferDetail, TransferLine, TransferStatus, TransferSummary } from '@/modules/documents/types'
+import type { TransferDetail, TransferLine, TransferStatus, TransferSummary } from '@/modules/transfer/types'
 import { request } from '@/shared/utils/request'
 export const pageTransfers = (params: {
   page: number

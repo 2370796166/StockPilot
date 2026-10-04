@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Box,
@@ -23,6 +23,27 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const collapsed = ref(false)
+const mobileQuery = window.matchMedia('(max-width: 760px)')
+const isMobile = ref(mobileQuery.matches)
+const mobileOpen = ref(false)
+const menuCollapsed = computed(() => !isMobile.value && collapsed.value)
+const menuExpanded = computed(() => (isMobile.value ? mobileOpen.value : !collapsed.value))
+function syncViewport() {
+  isMobile.value = mobileQuery.matches
+  mobileOpen.value = false
+}
+function toggleMenu() {
+  if (isMobile.value) mobileOpen.value = !mobileOpen.value
+  else collapsed.value = !collapsed.value
+}
+onMounted(() => mobileQuery.addEventListener('change', syncViewport))
+onBeforeUnmount(() => mobileQuery.removeEventListener('change', syncViewport))
+watch(
+  () => route.fullPath,
+  () => {
+    mobileOpen.value = false
+  },
+)
 const activePath = computed(() => route.path)
 
 const masterDataItems = computed(() =>
@@ -39,6 +60,7 @@ const masterDataItems = computed(() =>
 const businessItems = computed(
   () =>
     [
+      { path: '/ai-assistant', label: 'AI 仓储助手', icon: Tickets },
       auth.can('PURCHASE_RECEIPT_READ') && { path: '/documents/purchase-receipts', label: '采购入库单', icon: Tickets },
       auth.can('SALES_OUTBOUND_READ') && { path: '/documents/sales-outbound', label: '销售出库单', icon: Tickets },
       auth.can('TRANSFER_READ') && { path: '/documents/transfers', label: '库存调拨', icon: Switch },
@@ -63,17 +85,26 @@ async function logout() {
 
 <template>
   <el-container class="app-shell">
+    <button
+      v-if="isMobile && mobileOpen"
+      class="navigation-backdrop"
+      aria-label="关闭导航菜单"
+      @click="mobileOpen = false"
+    ></button>
     <el-aside
-      :width="collapsed ? '72px' : '232px'"
+      v-show="!isMobile || mobileOpen"
+      id="main-navigation"
+      :width="menuCollapsed ? '72px' : '232px'"
       class="sidebar"
+      @keydown.esc="mobileOpen = false"
     >
       <div
         class="brand"
-        :class="{ compact: collapsed }"
+        :class="{ compact: menuCollapsed }"
       >
         <div class="brand-mark">S</div>
         <div
-          v-if="!collapsed"
+          v-if="!menuCollapsed"
           class="brand-copy"
         >
           <strong>StockPilot</strong>
@@ -83,7 +114,7 @@ async function logout() {
       <el-menu
         :default-active="activePath"
         router
-        :collapse="collapsed"
+        :collapse="menuCollapsed"
         :collapse-transition="false"
         class="side-menu"
       >
@@ -116,14 +147,19 @@ async function logout() {
         <el-button
           text
           class="collapse-button"
-          :aria-label="collapsed ? '展开菜单' : '收起菜单'"
-          @click="collapsed = !collapsed"
+          :aria-label="menuExpanded ? '收起菜单' : '展开菜单'"
+          :aria-expanded="menuExpanded"
+          aria-controls="main-navigation"
+          @click="toggleMenu"
         >
-          <el-icon size="20"><Expand v-if="collapsed" /><Fold v-else /></el-icon>
+          <el-icon size="20"><Fold v-if="menuExpanded" /><Expand v-else /></el-icon>
         </el-button>
         <div class="topbar-title">{{ route.meta.title }}</div>
         <el-dropdown trigger="click">
-          <button class="user-menu">
+          <button
+            class="user-menu"
+            aria-label="用户菜单"
+          >
             <span class="user-avatar"
               ><el-icon><UserFilled /></el-icon
             ></span>

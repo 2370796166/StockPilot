@@ -3,9 +3,9 @@ package com.stockpilot.inventory.count.controller;
 import com.stockpilot.inventory.count.request.InventoryCountRequests;
 import com.stockpilot.inventory.count.service.InventoryCountApplicationService;
 import com.stockpilot.inventory.count.vo.*;
-import com.stockpilot.masterdata.vo.PageResult;
-import com.stockpilot.security.auth.StockPilotPrincipal;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -40,7 +40,7 @@ public class InventoryCountController {
     @PreAuthorize("hasAuthority('INVENTORY_COUNT_WRITE')")
     public ApiResponse<InventoryCountVO> create(
             @Valid @RequestBody InventoryCountRequests.Create r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.create(r, a));
     }
 
@@ -49,7 +49,7 @@ public class InventoryCountController {
     public ApiResponse<InventoryCountVO> start(
             @PathVariable @Positive long id,
             @Valid @RequestBody InventoryCountRequests.Transition r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.start(id, r, a));
     }
 
@@ -58,7 +58,7 @@ public class InventoryCountController {
     public ApiResponse<InventoryCountVO> results(
             @PathVariable @Positive long id,
             @Valid @RequestBody InventoryCountRequests.RecordResults r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.recordResults(id, r, a));
     }
 
@@ -67,7 +67,7 @@ public class InventoryCountController {
     public ApiResponse<InventoryCountVO> submit(
             @PathVariable @Positive long id,
             @Valid @RequestBody InventoryCountRequests.Transition r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.submit(id, r, a));
     }
 
@@ -76,14 +76,14 @@ public class InventoryCountController {
     public ApiResponse<InventoryCountVO> approve(
             @PathVariable @Positive long id,
             @Valid @RequestBody InventoryCountRequests.Transition r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.approve(id, r, a));
     }
 
     @PostMapping("/{id}/adjust")
     @PreAuthorize("hasAuthority('INVENTORY_COUNT_ADJUST')")
     public ApiResponse<InventoryCountVO> adjust(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal a) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.adjust(id, a));
     }
 }

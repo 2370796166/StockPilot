@@ -1,6 +1,6 @@
 package com.stockpilot.shared.exception;
 
-import com.stockpilot.security.api.SecurityErrorCode;
+import com.stockpilot.shared.api.AccessErrorCode;
 import com.stockpilot.shared.api.ApiResponse;
 import com.stockpilot.shared.api.CommonErrorCode;
 import jakarta.validation.ConstraintViolationException;
@@ -63,7 +63,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<Void>> handleAccessDenied(AccessDeniedException exception) {
-        return build(SecurityErrorCode.FORBIDDEN, SecurityErrorCode.FORBIDDEN.message());
+        return build(AccessErrorCode.FORBIDDEN, AccessErrorCode.FORBIDDEN.message());
     }
 
     @ExceptionHandler(Exception.class)

@@ -5,9 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.stockpilot.StockPilotApplication;
-import com.stockpilot.alert.service.LowStockEventApplicationService;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
 import com.stockpilot.messaging.domain.BusinessEventNames;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
+import com.stockpilot.messaging.service.CompletionEventConsumptionApplicationService;
 import com.stockpilot.messaging.service.TransactionalOutboxApplicationService;
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -36,16 +37,22 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest(classes = MessagingMySqlIT.TestApplication.class)
 @ContextConfiguration(initializers = MessagingMySqlIT.MySqlInitializer.class)
 class MessagingMySqlIT {
-    private static final String DATABASE = "stockpilot_messaging_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_messaging_it");
     private static final String ADMIN_URL =
-            "jdbc:mysql://localhost:3307/?allowPublicKeyRetrieval=true&useSSL=false";
-    private static final String ADMIN_USER = "root";
-    private static final String ADMIN_PASSWORD = "root_dev_only";
+            System.getenv()
+                    .getOrDefault(
+                            "STOCKPILOT_IT_ADMIN_URL",
+                            "jdbc:mysql://localhost:3307/?allowPublicKeyRetrieval=true&useSSL=false");
+    private static final String ADMIN_USER =
+            System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_USER", "root");
+    private static final String ADMIN_PASSWORD =
+            System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_PASSWORD", "root_dev_only");
 
     @Autowired JdbcTemplate jdbc;
     @Autowired TransactionTemplate transactions;
     @Autowired TransactionalOutboxApplicationService outbox;
-    @Autowired LowStockEventApplicationService lowStock;
+    @Autowired CompletionEventConsumptionApplicationService completionEventConsumption;
 
     @BeforeEach
     void cleanFacts() {
@@ -110,8 +117,8 @@ class MessagingMySqlIT {
         Dimension dimension = createDimension("4.0000", "5.0000");
         CompletionBusinessEvent outbound =
                 event(BusinessEventNames.SALES_OUTBOUND_COMPLETED, "SO-LOW", dimension);
-        assertTrue(lowStock.handle(outbound));
-        assertEquals(false, lowStock.handle(outbound));
+        assertTrue(completionEventConsumption.handle(outbound));
+        assertEquals(false, completionEventConsumption.handle(outbound));
         assertEquals(1, count("SELECT COUNT(*) FROM async_consumed_message"));
         assertEquals(
                 "OPEN", jdbc.queryForObject("SELECT status FROM low_stock_alert", String.class));
@@ -125,7 +132,7 @@ class MessagingMySqlIT {
                 dimension.balanceId());
         CompletionBusinessEvent inbound =
                 event(BusinessEventNames.PURCHASE_RECEIPT_COMPLETED, "PR-RECOVER", dimension);
-        assertTrue(lowStock.handle(inbound));
+        assertTrue(completionEventConsumption.handle(inbound));
         assertEquals(
                 "RESOLVED",
                 jdbc.queryForObject("SELECT status FROM low_stock_alert", String.class));
@@ -153,7 +160,7 @@ class MessagingMySqlIT {
                                         new CompletionBusinessEvent.InventoryDimension(
                                                 second.locationId(), second.skuId()))));
 
-        assertThrows(IllegalStateException.class, () -> lowStock.handle(event));
+        assertThrows(IllegalStateException.class, () -> completionEventConsumption.handle(event));
         assertEquals(0, count("SELECT COUNT(*) FROM low_stock_alert"));
         assertEquals(0, count("SELECT COUNT(*) FROM async_consumed_message"));
         assertEquals(
@@ -170,7 +177,7 @@ class MessagingMySqlIT {
                 second.skuId(),
                 new BigDecimal("3.0000"),
                 new BigDecimal("3.0000"));
-        assertTrue(lowStock.handle(event));
+        assertTrue(completionEventConsumption.handle(event));
         assertEquals(2, count("SELECT COUNT(*) FROM low_stock_alert WHERE status='OPEN'"));
         assertEquals(
                 1,
@@ -290,6 +297,7 @@ class MessagingMySqlIT {
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         @Override
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
             try (Connection connection =
                             DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement statement = connection.createStatement()) {
@@ -304,9 +312,8 @@ class MessagingMySqlIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
                     "stockpilot.messaging.enabled=false",

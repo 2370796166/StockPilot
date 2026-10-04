@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { sourceFilters } from '@/shared/utils/source-filters'
+import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
 import { pageBalances } from '@/modules/inventory/api'
 import EntityRef from '@/shared/components/EntityRef.vue'
@@ -12,15 +14,21 @@ const loading = ref(false),
 const query = reactive<{ page: number; size: number; warehouseId?: number; locationId?: number; skuId?: number }>({
   page: 1,
   size: 20,
+  ...sourceFilters(),
 })
+const listRequest = useLatestRequest()
 async function load() {
+  const sequence = listRequest.next()
   loading.value = true
   try {
     const result = await pageBalances(query)
+    if (!listRequest.isCurrent(sequence)) return
     records.value = result.records
     total.value = result.total
+  } catch {
+    // Request errors are displayed by the shared interceptor.
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(sequence)) loading.value = false
   }
 }
 function search() {
@@ -55,6 +63,7 @@ onMounted(load)
         ><el-form-item label="库位"
           ><RemoteLocationSelect
             v-model="query.locationId"
+            style="width: 190px"
             :warehouse-id="query.warehouseId" /></el-form-item
         ><el-form-item label="SKU"
           ><RemoteMasterDataSelect

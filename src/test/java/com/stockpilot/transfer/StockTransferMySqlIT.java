@@ -3,7 +3,8 @@ package com.stockpilot.transfer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.stockpilot.StockPilotApplication;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import com.stockpilot.transfer.domain.StockTransferStatus;
 import com.stockpilot.transfer.request.StockTransferRequests;
@@ -27,7 +28,8 @@ import org.springframework.test.context.support.TestPropertySourceUtils;
 @SpringBootTest(classes = StockTransferMySqlIT.TestApplication.class)
 @ContextConfiguration(initializers = StockTransferMySqlIT.MySqlInitializer.class)
 class StockTransferMySqlIT {
-    private static final String DATABASE = "stockpilot_transfer_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_transfer_it");
     private static final String ADMIN_URL =
             System.getenv()
                     .getOrDefault(
@@ -37,13 +39,129 @@ class StockTransferMySqlIT {
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_USER", "root");
     private static final String ADMIN_PASSWORD =
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_PASSWORD", "root_dev_only");
-    private static final StockPilotPrincipal OPERATOR =
-            new StockPilotPrincipal(201L, "transfer-operator");
-    private static final StockPilotPrincipal AUDITOR =
-            new StockPilotPrincipal(202L, "transfer-auditor");
+    private static final AuthenticatedActor OPERATOR =
+            new AuthenticatedActor(201L, "transfer-operator");
+    private static final AuthenticatedActor AUDITOR =
+            new AuthenticatedActor(202L, "transfer-auditor");
     private static final AtomicInteger SEQ = new AtomicInteger();
     @Autowired StockTransferApplicationService service;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.stockpilot.sales.service.SalesOutboundApplicationService salesOutboundService;
+
+    @Autowired
+    com.stockpilot.inventory.service.InventoryQueryApplicationService inventoryQueryService;
+
+    @Autowired com.stockpilot.ai.service.AiFrozenInventoryService aiFrozenInventoryService;
+
+    @Test
+    void activeFrozenSourcesAndDateTotalsUseRealMysqlRatherThanOnePage() {
+        Route r = route("100.0000");
+        var first =
+                salesOutboundService.create(
+                        new com.stockpilot.sales.request.SalesOutboundRequests.Create(
+                                "SO-AI-A-" + SEQ.incrementAndGet(),
+                                r.sourceWarehouse,
+                                null,
+                                List.of(
+                                        new com.stockpilot.sales.request.SalesOutboundRequests.Line(
+                                                r.sourceLocation,
+                                                r.sku,
+                                                new BigDecimal("10.1111")))),
+                        OPERATOR);
+        var second =
+                salesOutboundService.create(
+                        new com.stockpilot.sales.request.SalesOutboundRequests.Create(
+                                "SO-AI-B-" + SEQ.incrementAndGet(),
+                                r.sourceWarehouse,
+                                null,
+                                List.of(
+                                        new com.stockpilot.sales.request.SalesOutboundRequests.Line(
+                                                r.sourceLocation,
+                                                r.sku,
+                                                new BigDecimal("4.0001")))),
+                        OPERATOR);
+        first =
+                salesOutboundService.reserve(
+                        first.id(),
+                        new com.stockpilot.sales.request.SalesOutboundRequests.Transition(
+                                first.version()),
+                        OPERATOR);
+        second =
+                salesOutboundService.reserve(
+                        second.id(),
+                        new com.stockpilot.sales.request.SalesOutboundRequests.Transition(
+                                second.version()),
+                        OPERATOR);
+        var submitted = submit(draft("TR-AI-", r, "30.2222"));
+        var dimension =
+                new com.stockpilot.inventory.request.InventoryDimensionQuery(
+                        r.sku, r.sourceWarehouse, r.sourceLocation);
+        var snapshot = aiFrozenInventoryService.query(dimension, 1, 1);
+        assertEquals(new BigDecimal("44.3334"), snapshot.sourceQuantity());
+        assertEquals(0, snapshot.differenceQuantity().signum());
+        assertEquals(2, snapshot.sales().sources().total());
+        assertEquals(1, snapshot.sales().sources().records().size());
+        assertEquals("SALES", snapshot.sales().sources().records().get(0).documentType());
+        assertEquals("TRANSFER", snapshot.transfer().sources().records().get(0).documentType());
+        assertNotNull(snapshot.transfer().sources().records().get(0).reservedAt());
+        assertEquals(
+                0,
+                aiFrozenInventoryService
+                        .query(
+                                new com.stockpilot.inventory.request.InventoryDimensionQuery(
+                                        r.sku, r.targetWarehouse, null),
+                                1,
+                                1)
+                        .sourceQuantity()
+                        .signum());
+
+        jdbc.update(
+                "UPDATE inventory_ledger SET occurred_at='2026-10-01 00:00:00.000' WHERE business_type='OUTBOUND_FREEZE'");
+        jdbc.update(
+                "UPDATE inventory_ledger SET occurred_at='2026-10-03 23:59:59.999' WHERE business_type='TRANSFER_FREEZE'");
+        var approved =
+                service.approve(
+                        submitted.id(),
+                        new StockTransferRequests.Transition(submitted.version()),
+                        AUDITOR);
+        service.dispatch(approved.id(), OPERATOR);
+        jdbc.update(
+                "UPDATE inventory_ledger SET occurred_at='2026-10-04 00:00:00.000' WHERE business_type='TRANSFER_OUT'");
+        var period =
+                new com.stockpilot.inventory.request.InventoryPeriodQuery(
+                        dimension,
+                        java.time.LocalDate.of(2026, 10, 1),
+                        java.time.LocalDate.of(2026, 10, 3));
+        var summary = inventoryQueryService.periodSummary(period);
+        assertEquals(3, summary.ledgerCount());
+        assertEquals(2, summary.movements().size());
+        assertEquals(new BigDecimal("44.3334"), summary.changeFrozenQuantity());
+        assertEquals(0, summary.changeActualQuantity().signum());
+        var ledgerQuery = new com.stockpilot.inventory.request.InventoryLedgerPageQuery();
+        ledgerQuery.setSkuId(r.sku);
+        ledgerQuery.setWarehouseId(r.sourceWarehouse);
+        ledgerQuery.setLocationId(r.sourceLocation);
+        ledgerQuery.setStartDate(period.startDate());
+        ledgerQuery.setEndDate(period.endDate());
+        ledgerQuery.setSize(1);
+        assertEquals(3, inventoryQueryService.pageLedgers(ledgerQuery).total());
+        assertEquals(1, inventoryQueryService.pageLedgers(ledgerQuery).records().size());
+        snapshot = aiFrozenInventoryService.query(dimension, 1, 1);
+        assertEquals(new BigDecimal("14.1112"), snapshot.sourceQuantity());
+        assertEquals(0, snapshot.transfer().sources().total());
+        salesOutboundService.cancel(second.id(), OPERATOR);
+        var saleApproved =
+                salesOutboundService.approve(
+                        first.id(),
+                        new com.stockpilot.sales.request.SalesOutboundRequests.Transition(
+                                first.version()),
+                        AUDITOR);
+        salesOutboundService.complete(saleApproved.id(), OPERATOR);
+        snapshot = aiFrozenInventoryService.query(dimension, 1, 1);
+        assertEquals(0, snapshot.sourceQuantity().signum());
+        assertEquals(0, snapshot.differenceQuantity().signum());
+        assertEquals(0, snapshot.sales().sources().total());
+    }
 
     @BeforeEach
     void clean() {
@@ -435,6 +553,7 @@ class StockTransferMySqlIT {
     static class MySqlInitializer
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
             try (Connection c = DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement s = c.createStatement()) {
                 s.execute("DROP DATABASE IF EXISTS " + DATABASE);
@@ -448,9 +567,8 @@ class StockTransferMySqlIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
                     "spring.datasource.hikari.maximum-pool-size=25",

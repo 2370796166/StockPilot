@@ -24,7 +24,12 @@ const rules: FormRules = {
 async function submit() {
   if (auth.loading) return
   if (!(await formRef.value?.validate().catch(() => false))) return
-  await auth.login({ username: form.username.trim(), password: form.password })
+  try {
+    await auth.login({ username: form.username.trim(), password: form.password })
+  } catch {
+    // The shared request interceptor displays the error; keep the form available for retry.
+    return
+  }
   const redirect =
     typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
       ? route.query.redirect

@@ -10,10 +10,11 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.StockPilotApplication;
-import com.stockpilot.alert.service.LowStockEventApplicationService;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
 import com.stockpilot.messaging.config.MessagingProperties;
 import com.stockpilot.messaging.domain.BusinessEventNames;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
+import com.stockpilot.messaging.service.CompletionEventConsumptionApplicationService;
 import com.stockpilot.messaging.service.OutboxPublicationApplicationService;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -45,11 +46,17 @@ import org.springframework.test.context.support.TestPropertySourceUtils;
 @SpringBootTest(classes = MessagingRabbitIT.TestApplication.class)
 @ContextConfiguration(initializers = MessagingRabbitIT.InfrastructureInitializer.class)
 class MessagingRabbitIT {
-    private static final String DATABASE = "stockpilot_rabbit_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_rabbit_it");
     private static final String ADMIN_URL =
-            "jdbc:mysql://localhost:3307/?allowPublicKeyRetrieval=true&useSSL=false";
-    private static final String ADMIN_USER = "root";
-    private static final String ADMIN_PASSWORD = "root_dev_only";
+            System.getenv()
+                    .getOrDefault(
+                            "STOCKPILOT_IT_ADMIN_URL",
+                            "jdbc:mysql://localhost:3307/?allowPublicKeyRetrieval=true&useSSL=false");
+    private static final String ADMIN_USER =
+            System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_USER", "root");
+    private static final String ADMIN_PASSWORD =
+            System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_PASSWORD", "root_dev_only");
 
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper json;
@@ -63,11 +70,11 @@ class MessagingRabbitIT {
     @Autowired
     @Qualifier("deadLetterBinding") Binding deadLetterBinding;
 
-    @MockBean LowStockEventApplicationService lowStock;
+    @MockBean CompletionEventConsumptionApplicationService completionEventConsumption;
 
     @BeforeEach
     void clean() {
-        reset(lowStock);
+        reset(completionEventConsumption);
         rabbitAdmin.declareExchange(deadLetterExchange);
         rabbitAdmin.declareBinding(deadLetterBinding);
         rabbitAdmin.purgeQueue(properties.getCompletionQueue(), false);
@@ -89,10 +96,10 @@ class MessagingRabbitIT {
     @Test
     void outboxPublishesWithConfirmAndConsumerReceivesVersionedContent() throws Exception {
         CompletionBusinessEvent event = insertOutbox("SO-RABBIT-NORMAL");
-        when(lowStock.handle(any())).thenReturn(true);
+        when(completionEventConsumption.handle(any())).thenReturn(true);
         assertTrue(publications.publishNextDue());
 
-        verify(lowStock, org.mockito.Mockito.timeout(10_000)).handle(event);
+        verify(completionEventConsumption, org.mockito.Mockito.timeout(10_000)).handle(event);
         assertEquals(
                 "PUBLISHED",
                 jdbc.queryForObject(
@@ -104,13 +111,14 @@ class MessagingRabbitIT {
     @Test
     void temporaryConsumerFailureRetriesThenSucceeds() throws Exception {
         CompletionBusinessEvent event = insertOutbox("SO-RABBIT-RETRY");
-        when(lowStock.handle(any()))
+        when(completionEventConsumption.handle(any()))
                 .thenThrow(new IllegalStateException("temporary-1"))
                 .thenThrow(new IllegalStateException("temporary-2"))
                 .thenReturn(true);
         assertTrue(publications.publishNextDue());
 
-        verify(lowStock, org.mockito.Mockito.timeout(15_000).times(3)).handle(event);
+        verify(completionEventConsumption, org.mockito.Mockito.timeout(15_000).times(3))
+                .handle(event);
         await(
                 () ->
                         count(
@@ -124,10 +132,12 @@ class MessagingRabbitIT {
     @Test
     void permanentConsumerFailureIsRepublishedToDeadLetterAndRecorded() throws Exception {
         CompletionBusinessEvent event = insertOutbox("SO-RABBIT-DEAD");
-        when(lowStock.handle(any())).thenThrow(new IllegalArgumentException("permanent failure"));
+        when(completionEventConsumption.handle(any()))
+                .thenThrow(new IllegalArgumentException("permanent failure"));
         assertTrue(publications.publishNextDue());
 
-        verify(lowStock, org.mockito.Mockito.timeout(15_000).times(3)).handle(event);
+        verify(completionEventConsumption, org.mockito.Mockito.timeout(15_000).times(3))
+                .handle(event);
         await(
                 () ->
                         count(
@@ -147,11 +157,13 @@ class MessagingRabbitIT {
     @Test
     void deadLetterPublishFailureRequeuesOriginalUntilTopologyRecovers() throws Exception {
         CompletionBusinessEvent event = insertOutbox("SO-RABBIT-DLQ-OUTAGE");
-        when(lowStock.handle(any())).thenThrow(new IllegalArgumentException("permanent failure"));
+        when(completionEventConsumption.handle(any()))
+                .thenThrow(new IllegalArgumentException("permanent failure"));
         rabbitAdmin.deleteExchange(properties.getDeadLetterExchange());
 
         assertTrue(publications.publishNextDue());
-        verify(lowStock, org.mockito.Mockito.timeout(15_000).atLeast(6)).handle(event);
+        verify(completionEventConsumption, org.mockito.Mockito.timeout(15_000).atLeast(6))
+                .handle(event);
         assertEquals(
                 0,
                 count(
@@ -196,7 +208,7 @@ class MessagingRabbitIT {
                                                 + "' AND event_version=2 AND failure_stage='CONSUME'")
                                 == 1,
                 15_000);
-        verify(lowStock, never()).handle(any());
+        verify(completionEventConsumption, never()).handle(any());
     }
 
     private CompletionBusinessEvent insertOutbox(String businessNo) throws Exception {
@@ -247,6 +259,9 @@ class MessagingRabbitIT {
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         @Override
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
+            TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
+                    context, IntegrationTestInfrastructure.rabbitProperties(DATABASE));
             try (Connection connection =
                             DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement statement = connection.createStatement()) {
@@ -261,16 +276,10 @@ class MessagingRabbitIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
-                    "spring.rabbitmq.host=localhost",
-                    "spring.rabbitmq.port=5673",
-                    "spring.rabbitmq.username=stockpilot",
-                    "spring.rabbitmq.password=stockpilot_dev",
-                    "spring.rabbitmq.virtual-host=/stockpilot",
                     "stockpilot.messaging.enabled=true",
                     "stockpilot.messaging.publisher-fixed-delay=3600000",
                     "stockpilot.messaging.consumer-initial-backoff=50ms",

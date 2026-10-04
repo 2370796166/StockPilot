@@ -1,6 +1,5 @@
 package com.stockpilot.messaging.service;
 
-import com.stockpilot.alert.service.LowStockEventApplicationService;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.messaging.mapper.MessageTraceMapper;
 import java.util.UUID;
@@ -44,7 +43,7 @@ public class ConsumerRetryTraceApplicationService {
                 eventName,
                 businessNo,
                 "CONSUME_RETRY",
-                LowStockEventApplicationService.CONSUMER_NAME,
+                CompletionEventConsumptionApplicationService.CONSUMER_NAME,
                 attempt,
                 detail);
     }

@@ -1,7 +1,6 @@
 package com.stockpilot.messaging.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.stockpilot.alert.service.LowStockEventApplicationService;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.messaging.mapper.FailureRecordMapper;
 import com.stockpilot.messaging.mapper.MessageTraceMapper;
@@ -54,7 +53,7 @@ public class DeadLetterApplicationService {
                 eventVersion,
                 businessNo,
                 "CONSUME",
-                LowStockEventApplicationService.CONSUMER_NAME,
+                CompletionEventConsumptionApplicationService.CONSUMER_NAME,
                 payload,
                 reason);
         traces.insert(
@@ -62,7 +61,7 @@ public class DeadLetterApplicationService {
                 eventName,
                 businessNo,
                 "DEAD_LETTERED",
-                LowStockEventApplicationService.CONSUMER_NAME,
+                CompletionEventConsumptionApplicationService.CONSUMER_NAME,
                 0,
                 reason.length() > 1000 ? reason.substring(0, 1000) : reason);
     }

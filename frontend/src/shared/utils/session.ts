@@ -4,7 +4,8 @@ const EXPIRES_AT_KEY = 'stockpilot.expiresAt'
 export function getAccessToken(): string | null {
   const token = localStorage.getItem(TOKEN_KEY)
   const expiresAt = localStorage.getItem(EXPIRES_AT_KEY)
-  if (!token || !expiresAt || Date.parse(expiresAt) <= Date.now()) {
+  const expiry = expiresAt ? Date.parse(expiresAt) : NaN
+  if (!token || !Number.isFinite(expiry) || expiry <= Date.now()) {
     clearSession()
     return null
   }

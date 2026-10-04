@@ -5,70 +5,37 @@ import com.stockpilot.alert.mapper.LowStockAlertMapper;
 import com.stockpilot.alert.mapper.SafetyStockRuleMapper;
 import com.stockpilot.inventory.service.InventoryQueryApplicationService;
 import com.stockpilot.inventory.vo.InventoryBalanceVO;
-import com.stockpilot.messaging.domain.CompletionBusinessEvent;
-import com.stockpilot.messaging.mapper.ConsumedMessageMapper;
-import com.stockpilot.messaging.mapper.MessageTraceMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class LowStockEventApplicationService {
-    public static final String CONSUMER_NAME = "low-stock-alert-v1";
-
-    private final ConsumedMessageMapper consumedMessages;
-    private final MessageTraceMapper traces;
     private final SafetyStockRuleMapper rules;
     private final LowStockAlertMapper alerts;
     private final InventoryQueryApplicationService inventory;
 
     public LowStockEventApplicationService(
-            ConsumedMessageMapper consumedMessages,
-            MessageTraceMapper traces,
             SafetyStockRuleMapper rules,
             LowStockAlertMapper alerts,
             InventoryQueryApplicationService inventory) {
-        this.consumedMessages = consumedMessages;
-        this.traces = traces;
         this.rules = rules;
         this.alerts = alerts;
         this.inventory = inventory;
     }
 
-    // 消费入库或出库完成事件：先以“消息 ID + 消费者名”抢占幂等记录，再检查所有受影响库存维度。
-    // 预警判断始终查询 MySQL 最新可用库存；低于阈值时打开或更新预警，恢复后自动解除。
-    // 幂等记录、预警变化和消费轨迹在同一事务提交，异常会交由消息重试机制处理。
-    @Transactional
-    public boolean handle(CompletionBusinessEvent event) {
-        if (consumedMessages.claim(
-                        event.messageId(), CONSUMER_NAME, event.eventName(), event.businessNo())
-                == 0) {
-            traces.insert(
-                    event.messageId(),
-                    event.eventName(),
-                    event.businessNo(),
-                    "DUPLICATE",
-                    CONSUMER_NAME,
-                    0,
-                    "message already consumed");
-            return false;
-        }
-        traces.insert(
-                event.messageId(),
-                event.eventName(),
-                event.businessNo(),
-                "CONSUME_STARTED",
-                CONSUMER_NAME,
-                0,
-                null);
-        for (CompletionBusinessEvent.InventoryDimension dimension : event.data().dimensions()) {
+    // 只负责安全库存业务判断；消息幂等、重试和轨迹由 messaging 模块编排。
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void evaluate(LowStockEvaluationCommand command) {
+        for (LowStockEvaluationCommand.InventoryDimension dimension : command.dimensions()) {
             SafetyStockRuleEntity rule =
                     rules.selectEnabledByDimension(
-                            event.data().warehouseId(), dimension.locationId(), dimension.skuId());
+                            command.warehouseId(), dimension.locationId(), dimension.skuId());
             if (rule == null) continue;
             InventoryBalanceVO balance =
                     inventory
                             .findBalance(
-                                    event.data().warehouseId(),
+                                    command.warehouseId(),
                                     dimension.locationId(),
                                     dimension.skuId())
                             .orElseThrow(
@@ -78,32 +45,23 @@ public class LowStockEventApplicationService {
             if (balance.availableQuantity().compareTo(rule.getThresholdQuantity()) < 0) {
                 alerts.open(
                         rule.getId(),
-                        event.data().warehouseId(),
+                        command.warehouseId(),
                         dimension.locationId(),
                         dimension.skuId(),
                         rule.getThresholdQuantity(),
                         balance.availableQuantity(),
-                        event.messageId(),
-                        event.eventName(),
-                        event.businessNo());
+                        command.messageId(),
+                        command.eventName(),
+                        command.businessNo());
             } else {
                 alerts.resolve(
                         rule.getId(),
                         rule.getThresholdQuantity(),
                         balance.availableQuantity(),
-                        event.messageId(),
-                        event.eventName(),
-                        event.businessNo());
+                        command.messageId(),
+                        command.eventName(),
+                        command.businessNo());
             }
         }
-        traces.insert(
-                event.messageId(),
-                event.eventName(),
-                event.businessNo(),
-                "CONSUMED",
-                CONSUMER_NAME,
-                0,
-                "low-stock evaluation committed");
-        return true;
     }
 }

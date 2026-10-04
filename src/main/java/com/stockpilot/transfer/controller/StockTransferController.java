@@ -1,8 +1,8 @@
 package com.stockpilot.transfer.controller;
 
-import com.stockpilot.masterdata.vo.PageResult;
-import com.stockpilot.security.auth.StockPilotPrincipal;
 import com.stockpilot.shared.api.ApiResponse;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.transfer.request.StockTransferRequests;
 import com.stockpilot.transfer.service.StockTransferApplicationService;
 import com.stockpilot.transfer.vo.*;
@@ -40,7 +40,7 @@ public class StockTransferController {
     @PreAuthorize("hasAuthority('TRANSFER_WRITE')")
     public ApiResponse<StockTransferVO> create(
             @Valid @RequestBody StockTransferRequests.Create r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.create(r, a));
     }
 
@@ -49,7 +49,7 @@ public class StockTransferController {
     public ApiResponse<StockTransferVO> update(
             @PathVariable @Positive long id,
             @Valid @RequestBody StockTransferRequests.Update r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.update(id, r, a));
     }
 
@@ -58,7 +58,7 @@ public class StockTransferController {
     public ApiResponse<StockTransferVO> submit(
             @PathVariable @Positive long id,
             @Valid @RequestBody StockTransferRequests.Transition r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.submit(id, r, a));
     }
 
@@ -67,14 +67,14 @@ public class StockTransferController {
     public ApiResponse<StockTransferVO> approve(
             @PathVariable @Positive long id,
             @Valid @RequestBody StockTransferRequests.Transition r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.approve(id, r, a));
     }
 
     @PostMapping("/{id}/dispatch")
     @PreAuthorize("hasAuthority('TRANSFER_OUTBOUND')")
     public ApiResponse<StockTransferVO> dispatch(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal a) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.dispatch(id, a));
     }
 
@@ -83,21 +83,21 @@ public class StockTransferController {
     public ApiResponse<StockTransferVO> startTransit(
             @PathVariable @Positive long id,
             @Valid @RequestBody StockTransferRequests.Transition r,
-            @AuthenticationPrincipal StockPilotPrincipal a) {
+            @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.startTransit(id, r, a));
     }
 
     @PostMapping("/{id}/receive")
     @PreAuthorize("hasAuthority('TRANSFER_INBOUND')")
     public ApiResponse<StockTransferVO> receive(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal a) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.receive(id, a));
     }
 
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('TRANSFER_WRITE')")
     public ApiResponse<StockTransferVO> cancel(
-            @PathVariable @Positive long id, @AuthenticationPrincipal StockPilotPrincipal a) {
+            @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(stockTransferService.cancel(id, a));
     }
 }

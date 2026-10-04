@@ -5,10 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.stockpilot.StockPilotApplication;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
 import com.stockpilot.purchase.domain.PurchaseReceiptStatus;
 import com.stockpilot.purchase.request.PurchaseReceiptRequests;
 import com.stockpilot.purchase.service.PurchaseReceiptApplicationService;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -40,7 +41,8 @@ import org.springframework.test.context.support.TestPropertySourceUtils;
 @SpringBootTest(classes = PurchaseReceiptMySqlIT.TestApplication.class)
 @ContextConfiguration(initializers = PurchaseReceiptMySqlIT.MySqlInitializer.class)
 class PurchaseReceiptMySqlIT {
-    private static final String DATABASE = "stockpilot_purchase_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_purchase_it");
     private static final String ADMIN_URL =
             System.getenv()
                     .getOrDefault(
@@ -51,9 +53,8 @@ class PurchaseReceiptMySqlIT {
     private static final String ADMIN_PASSWORD =
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_PASSWORD", "root_dev_only");
     private static final AtomicInteger SEQUENCE = new AtomicInteger();
-    private static final StockPilotPrincipal OPERATOR =
-            new StockPilotPrincipal(101L, "it-operator");
-    private static final StockPilotPrincipal AUDITOR = new StockPilotPrincipal(102L, "it-auditor");
+    private static final AuthenticatedActor OPERATOR = new AuthenticatedActor(101L, "it-operator");
+    private static final AuthenticatedActor AUDITOR = new AuthenticatedActor(102L, "it-auditor");
 
     @Autowired private PurchaseReceiptApplicationService service;
     @Autowired private JdbcTemplate jdbc;
@@ -200,6 +201,64 @@ class PurchaseReceiptMySqlIT {
         assertEquals(0, dimensionLedgerCount(dimension));
     }
 
+    @Test
+    void laterInvalidLineRollsBackEarlierInventoryLedgerAndDocumentVersion() {
+        Dimension first = createEnabledDimension();
+        Dimension other = createEnabledDimension();
+        Dimension second = new Dimension(first.warehouseId(), first.locationId(), other.skuId());
+        assertTrue(first.skuId() < second.skuId());
+        String receiptNo = "PR-MULTI-ROLLBACK-" + SEQUENCE.incrementAndGet();
+        var draft =
+                service.create(
+                        new PurchaseReceiptRequests.Create(
+                                receiptNo,
+                                first.warehouseId(),
+                                null,
+                                List.of(
+                                        new PurchaseReceiptRequests.Line(
+                                                first.locationId(),
+                                                first.skuId(),
+                                                new BigDecimal("3.0000")),
+                                        new PurchaseReceiptRequests.Line(
+                                                second.locationId(),
+                                                second.skuId(),
+                                                new BigDecimal("4.0000")))),
+                        OPERATOR);
+        var submitted =
+                service.submit(
+                        draft.id(),
+                        new PurchaseReceiptRequests.Transition(draft.version()),
+                        OPERATOR);
+        var approved =
+                service.approve(
+                        submitted.id(),
+                        new PurchaseReceiptRequests.Transition(submitted.version()),
+                        AUDITOR);
+        // Stable dimension ordering processes the enabled first SKU before this disabled second
+        // SKU.
+        jdbc.update(
+                "UPDATE sku SET status='DISABLED', version=version+1 WHERE id=?", second.skuId());
+
+        assertThrows(BusinessException.class, () -> service.complete(approved.id(), OPERATOR));
+
+        var unchanged = service.get(approved.id());
+        assertEquals(PurchaseReceiptStatus.APPROVED, unchanged.status());
+        assertEquals(approved.version(), unchanged.version());
+        assertEquals(2, unchanged.lines().size());
+        assertEquals(0, balanceCount(first));
+        assertEquals(0, balanceCount(second));
+        assertEquals(0, dimensionLedgerCount(first));
+        assertEquals(0, dimensionLedgerCount(second));
+
+        jdbc.update(
+                "UPDATE sku SET status='ENABLED', version=version+1 WHERE id=?", second.skuId());
+        service.complete(approved.id(), OPERATOR);
+        assertBalance(first, "3.0000", "3.0000", "0.0000");
+        assertBalance(second, "4.0000", "4.0000", "0.0000");
+        assertEquals(1, purchaseLedgerCount(receiptNo, first));
+        assertEquals(1, purchaseLedgerCount(receiptNo, second));
+    }
+
     private long createApproved(String receiptNo, Dimension dimension, BigDecimal quantity) {
         var draft =
                 service.create(
@@ -323,6 +382,7 @@ class PurchaseReceiptMySqlIT {
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         @Override
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
             try (Connection connection =
                             DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement statement = connection.createStatement()) {
@@ -337,10 +397,8 @@ class PurchaseReceiptMySqlIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"
-                            + "&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
                     "stockpilot.security.jwt-secret=01234567890123456789012345678901");

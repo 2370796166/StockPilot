@@ -29,6 +29,15 @@ textarea {
 .app-shell {
   min-height: 100vh;
 }
+.app-shell > .el-container {
+  min-width: 0;
+}
+.el-dialog {
+  max-width: calc(100vw - 32px);
+}
+.el-dialog__body {
+  overflow-x: auto;
+}
 .sidebar {
   background: #10271d;
   color: #fff;
@@ -397,7 +406,17 @@ textarea {
     padding: 28px;
   }
   .sidebar {
-    display: none;
+    position: fixed;
+    inset: 64px auto 0 0;
+    z-index: 1001;
+    overflow-y: auto;
+  }
+  .navigation-backdrop {
+    position: fixed;
+    inset: 64px 0 0;
+    z-index: 1000;
+    border: 0;
+    background: rgba(0, 0, 0, 0.35);
   }
   .main-content {
     padding: 18px;

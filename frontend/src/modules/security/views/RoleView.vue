@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -23,12 +24,17 @@ const loading = ref(false),
   granting = ref<RoleRecord | null>(null),
   ids = ref<number[]>([])
 const form = reactive({ code: '', name: '' })
+const listRequest = useLatestRequest()
 async function load() {
+  const sequence = listRequest.next()
   loading.value = true
   try {
-    roles.value = await listRoles()
+    const result = await listRoles()
+    if (listRequest.isCurrent(sequence)) roles.value = result
+  } catch {
+    // Request errors are displayed by the shared interceptor.
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(sequence)) loading.value = false
   }
 }
 function create() {

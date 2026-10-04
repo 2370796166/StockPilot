@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -43,7 +44,9 @@ const rules: FormRules = {
   remark: [{ max: 255, message: '备注不能超过 255 个字符', trigger: 'blur' }],
 }
 
+const listRequest = useLatestRequest()
 async function load() {
+  const sequence = listRequest.next()
   loading.value = true
   try {
     const result = await pageMasterData(props.resource, {
@@ -53,10 +56,13 @@ async function load() {
       name: query.name || undefined,
       status: query.status,
     })
+    if (!listRequest.isCurrent(sequence)) return
     records.value = result.records
     total.value = result.total
+  } catch {
+    // Request errors are displayed by the shared interceptor.
   } finally {
-    loading.value = false
+    if (listRequest.isCurrent(sequence)) loading.value = false
   }
 }
 function search() {

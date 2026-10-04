@@ -31,6 +31,11 @@ client.interceptors.response.use(
       if (error.config?.url === '/auth/login') {
         ElMessage.error(error.response?.data?.message || '用户名或密码错误')
       } else {
+        // 旧会话的迟到401不能清除用户刚刚建立的新会话。
+        const currentToken = getAccessToken()
+        if (currentToken && error.config?.headers?.Authorization !== `Bearer ${currentToken}`) {
+          return Promise.reject(error)
+        }
         redirectToLogin()
         ElMessage.error('登录状态已失效，请重新登录')
       }

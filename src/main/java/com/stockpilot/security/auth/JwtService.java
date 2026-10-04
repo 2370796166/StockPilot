@@ -2,6 +2,7 @@ package com.stockpilot.security.auth;
 
 import com.stockpilot.security.api.SecurityErrorCode;
 import com.stockpilot.security.config.SecurityProperties;
+import com.stockpilot.shared.api.AccessErrorCode;
 import com.stockpilot.shared.exception.BusinessException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -22,9 +23,9 @@ public class JwtService {
         this(properties, Clock.systemUTC());
     }
 
-    JwtService(SecurityProperties p, Clock c) {
-        properties = p;
-        clock = c;
+    JwtService(SecurityProperties properties, Clock clock) {
+        this.properties = properties;
+        this.clock = clock;
     }
 
     public String issue(long userId, String username) {
@@ -68,7 +69,7 @@ public class JwtService {
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
-            throw new BusinessException(SecurityErrorCode.UNAUTHENTICATED);
+            throw new BusinessException(AccessErrorCode.UNAUTHENTICATED);
         }
     }
 

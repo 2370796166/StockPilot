@@ -7,6 +7,33 @@ import com.stockpilot.transfer.request.StockTransferRequests;
 import org.apache.ibatis.annotations.*;
 
 public interface StockTransferMapper {
+    String FROZEN_SCOPE =
+            """
+        FROM stock_transfer_order o JOIN stock_transfer_line l ON l.transfer_id = o.id
+        WHERE o.status IN ('SUBMITTED', 'APPROVED')
+          AND l.sku_id = #{query.skuId} AND l.source_warehouse_id = #{query.warehouseId}
+        <if test="query.locationId != null">AND l.source_location_id = #{query.locationId}</if>
+        """;
+
+    @Select("<script>SELECT COALESCE(SUM(l.quantity), 0) " + FROZEN_SCOPE + "</script>")
+    java.math.BigDecimal selectFrozenTotal(
+            @Param("query") com.stockpilot.inventory.request.InventoryDimensionQuery query);
+
+    @Select(
+            """
+        <script>SELECT 'TRANSFER' AS document_type, o.transfer_no AS business_no,
+          l.source_warehouse_id AS warehouse_id, l.source_location_id AS location_id, l.sku_id,
+          o.status, l.quantity, o.submitted_at AS reserved_at
+        """
+                    + FROZEN_SCOPE
+                    + " ORDER BY o.id DESC, l.id DESC</script>")
+    IPage<com.stockpilot.inventory.vo.InventoryFrozenSourceVO> selectFrozenSources(
+            Page<com.stockpilot.inventory.vo.InventoryFrozenSourceVO> page,
+            @Param("query") com.stockpilot.inventory.request.InventoryDimensionQuery query);
+
+    @Select("SELECT id FROM stock_transfer_order WHERE transfer_no = #{number}")
+    Long selectIdByNumber(String number);
+
     String COLUMNS =
             """
         id,transfer_no,source_warehouse_id,target_warehouse_id,status,remark,

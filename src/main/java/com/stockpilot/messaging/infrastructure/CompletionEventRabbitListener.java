@@ -1,8 +1,8 @@
 package com.stockpilot.messaging.infrastructure;
 
-import com.stockpilot.alert.service.LowStockEventApplicationService;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.messaging.service.CompletionEventCodec;
+import com.stockpilot.messaging.service.CompletionEventConsumptionApplicationService;
 import com.stockpilot.messaging.service.ConsumerRetryTraceApplicationService;
 import com.stockpilot.messaging.service.DeadLetterApplicationService;
 import java.nio.charset.StandardCharsets;
@@ -16,17 +16,17 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(prefix = "stockpilot.messaging", name = "enabled", havingValue = "true")
 public class CompletionEventRabbitListener {
     private final CompletionEventCodec codec;
-    private final LowStockEventApplicationService lowStock;
+    private final CompletionEventConsumptionApplicationService completionEventConsumption;
     private final ConsumerRetryTraceApplicationService retryTraces;
     private final DeadLetterApplicationService deadLetters;
 
     public CompletionEventRabbitListener(
             CompletionEventCodec codec,
-            LowStockEventApplicationService lowStock,
+            CompletionEventConsumptionApplicationService completionEventConsumption,
             ConsumerRetryTraceApplicationService retryTraces,
             DeadLetterApplicationService deadLetters) {
         this.codec = codec;
-        this.lowStock = lowStock;
+        this.completionEventConsumption = completionEventConsumption;
         this.retryTraces = retryTraces;
         this.deadLetters = deadLetters;
     }
@@ -38,7 +38,7 @@ public class CompletionEventRabbitListener {
         String json = new String(message.getBody(), StandardCharsets.UTF_8);
         try {
             CompletionBusinessEvent event = codec.decodeAndValidate(json);
-            lowStock.handle(event);
+            completionEventConsumption.handle(event);
         } catch (RuntimeException exception) {
             int attempt =
                     RetrySynchronizationManager.getContext() == null

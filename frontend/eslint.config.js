@@ -8,6 +8,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
+  { files: ['tests/**/*.mjs'], languageOptions: { globals: globals.node } },
   {
     files: ['**/*.{ts,vue}'],
     languageOptions: {

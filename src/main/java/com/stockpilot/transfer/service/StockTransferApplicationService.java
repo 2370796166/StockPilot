@@ -6,8 +6,8 @@ import com.stockpilot.inventory.domain.InventoryBusinessType;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.service.TransferInventoryCommand;
 import com.stockpilot.masterdata.service.MasterDataReferenceApplicationService;
-import com.stockpilot.masterdata.vo.PageResult;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.api.PageResult;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import com.stockpilot.transfer.api.StockTransferErrorCode;
 import com.stockpilot.transfer.domain.*;
@@ -23,6 +23,33 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class StockTransferApplicationService {
+    @Transactional(readOnly = true)
+    public com.stockpilot.inventory.vo.InventoryFrozenSourcePageVO frozenSources(
+            com.stockpilot.inventory.request.InventoryDimensionQuery query, long page, long size) {
+        if (query == null) throw new IllegalArgumentException("Missing inventory scope");
+        com.stockpilot.inventory.request.InventoryDimensionQuery.validatePage(page, size);
+        var total = transfers.selectFrozenTotal(query);
+        var sources = transfers.selectFrozenSources(Page.of(page, size), query);
+        return new com.stockpilot.inventory.vo.InventoryFrozenSourcePageVO(
+                total,
+                new PageResult<>(
+                        sources.getRecords(),
+                        sources.getTotal(),
+                        sources.getCurrent(),
+                        sources.getSize()));
+    }
+
+    @Transactional(readOnly = true)
+    public StockTransferVO getByNumber(String number) {
+        if (number == null || !number.matches("[A-Za-z0-9_-]{2,64}"))
+            throw new IllegalArgumentException("Invalid document number");
+        Long id = transfers.selectIdByNumber(number.toUpperCase(java.util.Locale.ROOT));
+        if (id == null)
+            throw new com.stockpilot.shared.exception.BusinessException(
+                    StockTransferErrorCode.NOT_FOUND);
+        return get(id);
+    }
+
     private final StockTransferMapper transfers;
     private final StockTransferLineMapper lines;
     private final StockTransferTransitMapper transit;
@@ -30,22 +57,22 @@ public class StockTransferApplicationService {
     private final InventoryMutationApplicationService inventory;
 
     public StockTransferApplicationService(
-            StockTransferMapper t,
-            StockTransferLineMapper l,
-            StockTransferTransitMapper x,
-            MasterDataReferenceApplicationService m,
-            InventoryMutationApplicationService i) {
-        transfers = t;
-        lines = l;
-        transit = x;
-        masterData = m;
-        inventory = i;
+            StockTransferMapper stockTransferMapper,
+            StockTransferLineMapper stockTransferLineMapper,
+            StockTransferTransitMapper stockTransferTransitMapper,
+            MasterDataReferenceApplicationService masterDataReferenceService,
+            InventoryMutationApplicationService inventoryMutationService) {
+        transfers = stockTransferMapper;
+        lines = stockTransferLineMapper;
+        transit = stockTransferTransitMapper;
+        masterData = masterDataReferenceService;
+        inventory = inventoryMutationService;
     }
 
     // 创建调拨草稿：源仓和目标仓必须不同，每个源维度及目标维度在同一单据内均不可重复。
     // 此阶段只保存调拨计划，不冻结也不移动任何库存。
     @Transactional
-    public StockTransferVO create(StockTransferRequests.Create r, StockPilotPrincipal actor) {
+    public StockTransferVO create(StockTransferRequests.Create r, AuthenticatedActor actor) {
         requireActor(actor);
         validateWarehouses(r.sourceWarehouseId(), r.targetWarehouseId());
         List<StockTransferLineEntity> values =
@@ -72,7 +99,7 @@ public class StockTransferApplicationService {
     // 修改调拨草稿：锁定 DRAFT 单据、校验版本后整体替换明细；提交后的调拨内容不可再编辑。
     @Transactional
     public StockTransferVO update(
-            long id, StockTransferRequests.Update r, StockPilotPrincipal actor) {
+            long id, StockTransferRequests.Update r, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         requireState(current, StockTransferStatus.DRAFT);
@@ -96,7 +123,7 @@ public class StockTransferApplicationService {
     // 任一明细冻结失败会回滚整张调拨单已经产生的冻结和流水。
     @Transactional
     public StockTransferVO submit(
-            long id, StockTransferRequests.Transition r, StockPilotPrincipal actor) {
+            long id, StockTransferRequests.Transition r, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         requireState(current, StockTransferStatus.DRAFT);
@@ -111,7 +138,7 @@ public class StockTransferApplicationService {
     // 审核调拨：仅将 SUBMITTED 单据确认为 APPROVED，不在审核阶段重复改变库存。
     @Transactional
     public StockTransferVO approve(
-            long id, StockTransferRequests.Transition r, StockPilotPrincipal actor) {
+            long id, StockTransferRequests.Transition r, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         requireState(current, StockTransferStatus.SUBMITTED);
@@ -123,7 +150,7 @@ public class StockTransferApplicationService {
     // 调拨出库：从源仓扣除实际量和冻结量，并为每条明细建立独立在途记录。
     // 源库存、在途事实和 OUTBOUND_COMPLETED 状态在同一事务内原子提交。
     @Transactional
-    public StockTransferVO dispatch(long id, StockPilotPrincipal actor) {
+    public StockTransferVO dispatch(long id, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         if (current.getStatus() == StockTransferStatus.OUTBOUND_COMPLETED
@@ -160,7 +187,7 @@ public class StockTransferApplicationService {
     // 确认运输开始：要求每条调拨明细都有完整在途记录，再将单据推进到 IN_TRANSIT。
     @Transactional
     public StockTransferVO startTransit(
-            long id, StockTransferRequests.Transition r, StockPilotPrincipal actor) {
+            long id, StockTransferRequests.Transition r, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         requireState(current, StockTransferStatus.OUTBOUND_COMPLETED);
@@ -178,7 +205,7 @@ public class StockTransferApplicationService {
     // 目标仓收货：逐条增加目标库存并结清对应在途量，全部完成后将调拨单标记为 COMPLETED。
     // 调入失败、在途数量不符或状态更新失败都会回滚本次整单收货。
     @Transactional
-    public StockTransferVO receive(long id, StockPilotPrincipal actor) {
+    public StockTransferVO receive(long id, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         if (current.getStatus() == StockTransferStatus.COMPLETED)
@@ -207,7 +234,7 @@ public class StockTransferApplicationService {
 
     // 取消调拨：仅 SUBMITTED 和 APPROVED 状态可释放源仓冻结；调出后禁止普通取消。
     @Transactional
-    public StockTransferVO cancel(long id, StockPilotPrincipal actor) {
+    public StockTransferVO cancel(long id, AuthenticatedActor actor) {
         requireActor(actor);
         StockTransferEntity current = locked(id);
         if (current.getStatus() == StockTransferStatus.CANCELLED)
@@ -232,7 +259,8 @@ public class StockTransferApplicationService {
     public StockTransferVO get(long id) {
         StockTransferEntity value = transfers.selectById(id);
         if (value == null) throw error(StockTransferErrorCode.NOT_FOUND);
-        return detail(value, lines.selectByTransferId(id), transit.selectByTransferId(id));
+        return StockTransferViewAssembler.detail(
+                value, lines.selectByTransferId(id), transit.selectByTransferId(id));
     }
 
     // 分页查询调拨摘要，支持按规范化后的调拨单号和业务状态筛选。
@@ -242,7 +270,7 @@ public class StockTransferApplicationService {
             q.setTransferNo(q.getTransferNo().trim().toUpperCase(Locale.ROOT));
         IPage<StockTransferEntity> p = transfers.selectPage(Page.of(q.getPage(), q.getSize()), q);
         return new PageResult<>(
-                p.getRecords().stream().map(this::summary).toList(),
+                p.getRecords().stream().map(StockTransferViewAssembler::summary).toList(),
                 p.getTotal(),
                 p.getCurrent(),
                 p.getSize());
@@ -316,7 +344,7 @@ public class StockTransferApplicationService {
             StockTransferEntity h,
             StockTransferLineEntity l,
             InventoryBusinessType type,
-            StockPilotPrincipal a) {
+            AuthenticatedActor a) {
         return new TransferInventoryCommand(
                 h.getSourceWarehouseId(),
                 l.getSourceLocationId(),
@@ -329,7 +357,7 @@ public class StockTransferApplicationService {
     }
 
     private TransferInventoryCommand targetCommand(
-            StockTransferEntity h, StockTransferLineEntity l, StockPilotPrincipal a) {
+            StockTransferEntity h, StockTransferLineEntity l, AuthenticatedActor a) {
         return new TransferInventoryCommand(
                 h.getTargetWarehouseId(),
                 l.getTargetLocationId(),
@@ -345,7 +373,7 @@ public class StockTransferApplicationService {
             StockTransferEntity h,
             StockTransferStatus from,
             StockTransferStatus to,
-            StockPilotPrincipal a) {
+            AuthenticatedActor a) {
         if (transfers.transition(
                         h.getId(), h.getVersion(), from.name(), to.name(), a.userId(), a.username())
                 != 1) throw error(StockTransferErrorCode.CONCURRENT_MODIFICATION);
@@ -367,7 +395,7 @@ public class StockTransferApplicationService {
         if (!v.getVersion().equals(n)) throw error(StockTransferErrorCode.CONCURRENT_MODIFICATION);
     }
 
-    private void requireActor(StockPilotPrincipal a) {
+    private void requireActor(AuthenticatedActor a) {
         if (a == null
                 || a.userId() == null
                 || a.userId() <= 0
@@ -405,57 +433,6 @@ public class StockTransferApplicationService {
         if (v == null || v.signum() <= 0 || v.scale() > 4 || v.precision() - v.scale() > 15)
             throw error(StockTransferErrorCode.INVALID_LINE);
         return v.setScale(4);
-    }
-
-    private StockTransferVO detail(
-            StockTransferEntity h,
-            List<StockTransferLineEntity> l,
-            List<StockTransferTransitEntity> t) {
-        return new StockTransferVO(
-                h.getId(),
-                h.getTransferNo(),
-                h.getSourceWarehouseId(),
-                h.getTargetWarehouseId(),
-                h.getStatus(),
-                h.getRemark(),
-                h.getVersion(),
-                h.getCreatedAt(),
-                h.getUpdatedAt(),
-                l.stream()
-                        .map(
-                                x ->
-                                        new StockTransferVO.Line(
-                                                x.getId(),
-                                                x.getLineNo(),
-                                                x.getSourceLocationId(),
-                                                x.getTargetLocationId(),
-                                                x.getSkuId(),
-                                                x.getQuantity()))
-                        .toList(),
-                t.stream()
-                        .map(
-                                x ->
-                                        new StockTransferVO.Transit(
-                                                x.getTransferLineId(),
-                                                x.getOutboundQuantity(),
-                                                x.getInTransitQuantity(),
-                                                x.getReceivedQuantity(),
-                                                x.getStatus(),
-                                                x.getVersion()))
-                        .toList());
-    }
-
-    private StockTransferSummaryVO summary(StockTransferEntity h) {
-        return new StockTransferSummaryVO(
-                h.getId(),
-                h.getTransferNo(),
-                h.getSourceWarehouseId(),
-                h.getTargetWarehouseId(),
-                h.getStatus(),
-                h.getRemark(),
-                h.getVersion(),
-                h.getCreatedAt(),
-                h.getUpdatedAt());
     }
 
     private BusinessException error(StockTransferErrorCode c) {

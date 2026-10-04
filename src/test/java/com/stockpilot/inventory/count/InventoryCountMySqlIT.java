@@ -3,13 +3,14 @@ package com.stockpilot.inventory.count;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.stockpilot.StockPilotApplication;
+import com.stockpilot.acceptance.IntegrationTestInfrastructure;
 import com.stockpilot.inventory.count.domain.InventoryCountStatus;
 import com.stockpilot.inventory.count.request.InventoryCountRequests;
 import com.stockpilot.inventory.count.service.InventoryCountApplicationService;
 import com.stockpilot.inventory.count.vo.InventoryCountVO;
 import com.stockpilot.inventory.domain.*;
 import com.stockpilot.inventory.service.*;
-import com.stockpilot.security.auth.StockPilotPrincipal;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.sql.*;
@@ -29,7 +30,8 @@ import org.springframework.test.context.support.TestPropertySourceUtils;
 @SpringBootTest(classes = InventoryCountMySqlIT.TestApplication.class)
 @ContextConfiguration(initializers = InventoryCountMySqlIT.MySqlInitializer.class)
 class InventoryCountMySqlIT {
-    private static final String DATABASE = "stockpilot_count_it";
+    private static final String DATABASE =
+            IntegrationTestInfrastructure.databaseName("stockpilot_count_it");
     private static final String ADMIN_URL =
             System.getenv()
                     .getOrDefault(
@@ -39,10 +41,9 @@ class InventoryCountMySqlIT {
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_USER", "root");
     private static final String ADMIN_PASSWORD =
             System.getenv().getOrDefault("STOCKPILOT_IT_ADMIN_PASSWORD", "root_dev_only");
-    private static final StockPilotPrincipal OPERATOR =
-            new StockPilotPrincipal(301L, "count-operator");
-    private static final StockPilotPrincipal AUDITOR =
-            new StockPilotPrincipal(302L, "count-auditor");
+    private static final AuthenticatedActor OPERATOR =
+            new AuthenticatedActor(301L, "count-operator");
+    private static final AuthenticatedActor AUDITOR = new AuthenticatedActor(302L, "count-auditor");
     private static final AtomicInteger SEQ = new AtomicInteger();
     @Autowired InventoryCountApplicationService service;
     @Autowired InventoryMutationApplicationService inventory;
@@ -371,6 +372,7 @@ class InventoryCountMySqlIT {
     static class MySqlInitializer
             implements ApplicationContextInitializer<ConfigurableApplicationContext> {
         public void initialize(ConfigurableApplicationContext context) {
+            IntegrationTestInfrastructure.isolate(context, DATABASE);
             try (Connection c = DriverManager.getConnection(ADMIN_URL, ADMIN_USER, ADMIN_PASSWORD);
                     Statement s = c.createStatement()) {
                 s.execute("DROP DATABASE IF EXISTS " + DATABASE);
@@ -384,9 +386,8 @@ class InventoryCountMySqlIT {
             }
             TestPropertySourceUtils.addInlinedPropertiesToEnvironment(
                     context,
-                    "spring.datasource.url=jdbc:mysql://localhost:3307/"
-                            + DATABASE
-                            + "?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false",
+                    "spring.datasource.url="
+                            + IntegrationTestInfrastructure.databaseUrl(ADMIN_URL, DATABASE),
                     "spring.datasource.username=" + ADMIN_USER,
                     "spring.datasource.password=" + ADMIN_PASSWORD,
                     "spring.datasource.hikari.maximum-pool-size=25",
