@@ -53,6 +53,14 @@ public class MessagingInfrastructureConfiguration {
         }
 
         @Bean
+        Binding inventoryAvailabilityBinding(
+                Queue completionQueue, TopicExchange businessExchange) {
+            return BindingBuilder.bind(completionQueue)
+                    .to(businessExchange)
+                    .with(BusinessEventNames.AVAILABILITY_ROUTING_KEY);
+        }
+
+        @Bean
         DirectExchange deadLetterExchange(MessagingProperties properties) {
             return new DirectExchange(properties.getDeadLetterExchange(), true, false);
         }

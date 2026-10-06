@@ -2,6 +2,7 @@ package com.stockpilot.transfer.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.stockpilot.inventory.domain.InventoryAvailabilityChanged;
 import com.stockpilot.inventory.domain.InventoryBusinessType;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.service.TransferInventoryCommand;
@@ -16,6 +17,7 @@ import com.stockpilot.transfer.request.StockTransferRequests;
 import com.stockpilot.transfer.vo.*;
 import java.math.BigDecimal;
 import java.util.*;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,18 +57,21 @@ public class StockTransferApplicationService {
     private final StockTransferTransitMapper transit;
     private final MasterDataReferenceApplicationService masterData;
     private final InventoryMutationApplicationService inventory;
+    private final ApplicationEventPublisher events;
 
     public StockTransferApplicationService(
             StockTransferMapper stockTransferMapper,
             StockTransferLineMapper stockTransferLineMapper,
             StockTransferTransitMapper stockTransferTransitMapper,
             MasterDataReferenceApplicationService masterDataReferenceService,
-            InventoryMutationApplicationService inventoryMutationService) {
+            InventoryMutationApplicationService inventoryMutationService,
+            ApplicationEventPublisher events) {
         transfers = stockTransferMapper;
         lines = stockTransferLineMapper;
         transit = stockTransferTransitMapper;
         masterData = masterDataReferenceService;
         inventory = inventoryMutationService;
+        this.events = events;
     }
 
     // 创建调拨草稿：源仓和目标仓必须不同，每个源维度及目标维度在同一单据内均不可重复。
@@ -128,10 +133,16 @@ public class StockTransferApplicationService {
         StockTransferEntity current = locked(id);
         requireState(current, StockTransferStatus.DRAFT);
         requireVersion(current, r.version());
-        for (StockTransferLineEntity line : sourceSorted(requireLines(id)))
+        List<StockTransferLineEntity> affectedLines = sourceSorted(requireLines(id));
+        for (StockTransferLineEntity line : affectedLines)
             inventory.freezeTransfer(
                     sourceCommand(current, line, InventoryBusinessType.TRANSFER_FREEZE, actor));
         transition(current, StockTransferStatus.DRAFT, StockTransferStatus.SUBMITTED, actor);
+        publishAvailability(
+                current,
+                InventoryAvailabilityChanged.Action.TRANSFER_SUBMITTED,
+                false,
+                affectedLines);
         return get(id);
     }
 
@@ -229,6 +240,8 @@ public class StockTransferApplicationService {
                 throw error(StockTransferErrorCode.TRANSIT_CONFLICT);
         }
         transition(current, StockTransferStatus.IN_TRANSIT, StockTransferStatus.COMPLETED, actor);
+        publishAvailability(
+                current, InventoryAvailabilityChanged.Action.TRANSFER_RECEIVED, true, values);
         return get(id);
     }
 
@@ -247,10 +260,16 @@ public class StockTransferApplicationService {
                 && current.getStatus() != StockTransferStatus.APPROVED)
             throw error(StockTransferErrorCode.INVALID_STATE);
         StockTransferStatus before = current.getStatus();
-        for (StockTransferLineEntity line : sourceSorted(requireLines(id)))
+        List<StockTransferLineEntity> affectedLines = sourceSorted(requireLines(id));
+        for (StockTransferLineEntity line : affectedLines)
             inventory.releaseTransfer(
                     sourceCommand(current, line, InventoryBusinessType.TRANSFER_RELEASE, actor));
         transition(current, before, StockTransferStatus.CANCELLED, actor);
+        publishAvailability(
+                current,
+                InventoryAvailabilityChanged.Action.TRANSFER_CANCELLED,
+                false,
+                affectedLines);
         return get(id);
     }
 
@@ -367,6 +386,28 @@ public class StockTransferApplicationService {
                 l.getQuantity(),
                 a.userId(),
                 a.username());
+    }
+
+    private void publishAvailability(
+            StockTransferEntity order,
+            InventoryAvailabilityChanged.Action action,
+            boolean target,
+            List<StockTransferLineEntity> affectedLines) {
+        events.publishEvent(
+                new InventoryAvailabilityChanged(
+                        action,
+                        order.getId(),
+                        order.getTransferNo(),
+                        target ? order.getTargetWarehouseId() : order.getSourceWarehouseId(),
+                        affectedLines.stream()
+                                .map(
+                                        line ->
+                                                new InventoryAvailabilityChanged.Dimension(
+                                                        target
+                                                                ? line.getTargetLocationId()
+                                                                : line.getSourceLocationId(),
+                                                        line.getSkuId()))
+                                .toList()));
     }
 
     private void transition(

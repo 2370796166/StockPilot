@@ -1,3 +1,9 @@
+<script setup lang="ts">
+import { ElButton, ElResult } from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/result/style/css'
+</script>
+
 <template>
   <div class="result-page">
     <el-result

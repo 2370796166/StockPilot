@@ -146,7 +146,8 @@ class AuthenticationApplicationServiceTest {
         admin.setId(3L);
         admin.setCode("ADMIN");
         admin.setStatus(SecurityStatus.ENABLED);
-        when(roles.selectOne(any())).thenReturn(admin);
+        when(roles.findByCodeForUpdate("ADMIN")).thenReturn(admin);
+        when(users.insertRoles(8L, List.of(3L))).thenReturn(1);
         when(users.insert(any()))
                 .thenAnswer(
                         i -> {
@@ -156,6 +157,47 @@ class AuthenticationApplicationServiceTest {
                         });
         bootstrap.run(mock(org.springframework.boot.ApplicationArguments.class));
         verify(users).insertRoles(8L, List.of(3L));
+    }
+
+    @Test
+    void missingBootstrapRoleCannotLeaveAnOrphanUser() {
+        SecurityProperties properties =
+                new SecurityProperties(
+                        "01234567890123456789012345678901", 60, " new_admin ", "1234");
+        var bootstrap =
+                new AuthenticationApplicationService(
+                        users,
+                        roles,
+                        encoder,
+                        new JwtService(properties),
+                        new AuditService(logs),
+                        properties);
+        assertThrows(
+                IllegalStateException.class,
+                () -> bootstrap.run(mock(org.springframework.boot.ApplicationArguments.class)));
+        verify(users, never()).insert(any());
+        verify(users, never()).insertRoles(anyLong(), any());
+    }
+
+    @Test
+    void existingBootstrapUsernameIsNormalizedAndNeverPromoted() {
+        SecurityProperties properties =
+                new SecurityProperties("01234567890123456789012345678901", 60, " alice ", "1234");
+        var admin = new RoleEntity();
+        admin.setStatus(SecurityStatus.ENABLED);
+        when(roles.findByCodeForUpdate("ADMIN")).thenReturn(admin);
+        when(users.findByUsername("alice")).thenReturn(user(SecurityStatus.ENABLED, "existing"));
+        var bootstrap =
+                new AuthenticationApplicationService(
+                        users,
+                        roles,
+                        encoder,
+                        new JwtService(properties),
+                        new AuditService(logs),
+                        properties);
+        bootstrap.run(mock(org.springframework.boot.ApplicationArguments.class));
+        verify(users, never()).insert(any());
+        verify(users, never()).insertRoles(anyLong(), any());
     }
 
     @Test

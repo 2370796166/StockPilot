@@ -1,4 +1,34 @@
 <script setup lang="ts">
+import {
+  ElButton,
+  ElCard,
+  ElDatePicker,
+  ElDescriptions,
+  ElDescriptionsItem,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElOption,
+  ElSelect,
+  ElTable,
+  ElTableColumn as TableColumn,
+  vLoading,
+} from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/date-picker/style/css'
+import 'element-plus/es/components/descriptions/style/css'
+import 'element-plus/es/components/descriptions-item/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import 'element-plus/es/components/loading/style/css'
 import { sourceFilters } from '@/shared/utils/source-filters'
 import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
@@ -92,6 +122,7 @@ function show(row: InventoryLedger) {
 }
 const cancelLiveSearch = useLiveSearch([() => query.businessNo], search)
 onMounted(load)
+const ElTableColumn = TableColumn<InventoryLedger>
 </script>
 <template>
   <div class="page-stack">

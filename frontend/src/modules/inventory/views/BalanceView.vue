@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import { ElButton, ElCard, ElForm, ElFormItem, ElTable, ElTableColumn, vLoading } from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import 'element-plus/es/components/loading/style/css'
 import { sourceFilters } from '@/shared/utils/source-filters'
 import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'

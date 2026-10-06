@@ -326,6 +326,13 @@ public class InventoryMutationApplicationService {
         return InventoryViewConverter.balance(balance);
     }
 
+    // Serialize releasing a static count lock with inventory writers; no quantity changes here.
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockCountBalanceForRelease(long warehouseId, long locationId, long skuId) {
+        if (balances.selectByDimensionForUpdate(warehouseId, locationId, skuId) == null)
+            throw new BusinessException(InventoryErrorCode.BALANCE_NOT_FOUND);
+    }
+
     // 根据已审核盘点结果调整实际量与可用量，冻结量保持不变，并写入包含账面量和实盘量的流水。
     // 实盘量不得小于冻结量，否则现有占用业务将失去可兑现的实际库存。
     @Transactional(propagation = Propagation.MANDATORY)

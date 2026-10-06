@@ -42,33 +42,39 @@ public class OutboxPublicationApplicationService {
     public boolean publishNextDue() {
         OutboxMessageEntity message = outbox.selectNextDueForUpdate();
         if (message == null) return false;
-        if (outbox.markAttempt(message.getMessageId()) != 1) return true;
+        if (outbox.markAttempt(message.getMessageId()) != 1)
+            throw new IllegalStateException("Cannot record publisher attempt");
         int attempt = message.getPublishAttempts() + 1;
-        traces.insert(
-                message.getMessageId(),
-                message.getEventName(),
-                message.getBusinessNo(),
-                "PUBLISH_ATTEMPT",
-                "outbox-publisher",
-                attempt,
-                null);
+        if (traces.insert(
+                        message.getMessageId(),
+                        message.getEventName(),
+                        message.getBusinessNo(),
+                        "PUBLISH_ATTEMPT",
+                        "outbox-publisher",
+                        attempt,
+                        null)
+                != 1) throw new IllegalStateException("Cannot persist publisher attempt trace");
         try {
             // Broker 已确认但数据库状态尚未提交时进程仍可能退出，因此消费者必须按消息 ID 幂等。
             transport.publish(message);
-            if (outbox.markPublished(message.getMessageId()) != 1) {
-                throw new IllegalStateException("Outbox state changed before publisher confirm");
-            }
-            traces.insert(
-                    message.getMessageId(),
-                    message.getEventName(),
-                    message.getBusinessNo(),
-                    "PUBLISHED",
-                    "outbox-publisher",
-                    attempt,
-                    "broker publisher confirm ack");
         } catch (Exception exception) {
             recordFailure(message, attempt, exception);
+            return true;
         }
+        // Persistence failures must roll back. They are not transport failures to swallow/retry
+        // here.
+        if (outbox.markPublished(message.getMessageId()) != 1)
+            throw new IllegalStateException("Outbox state changed before publisher confirm");
+        if (traces.insert(
+                        message.getMessageId(),
+                        message.getEventName(),
+                        message.getBusinessNo(),
+                        "PUBLISHED",
+                        "outbox-publisher",
+                        attempt,
+                        "broker publisher confirm ack")
+                != 1)
+            throw new IllegalStateException("Cannot persist publisher confirmation trace");
         return true;
     }
 
@@ -84,7 +90,8 @@ public class OutboxPublicationApplicationService {
         String status = terminal ? "FAILED" : "PENDING";
         LocalDateTime next =
                 LocalDateTime.now().plusSeconds(Math.min(900L, 1L << Math.min(attempt, 9)));
-        outbox.markFailure(message.getMessageId(), status, next, reason);
+        if (outbox.markFailure(message.getMessageId(), status, next, reason) != 1)
+            throw new IllegalStateException("Cannot persist publisher retry state", exception);
         traces.insert(
                 message.getMessageId(),
                 message.getEventName(),

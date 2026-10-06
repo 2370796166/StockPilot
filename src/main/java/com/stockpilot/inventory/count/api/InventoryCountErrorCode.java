@@ -11,6 +11,8 @@ public enum InventoryCountErrorCode implements ErrorCode {
     INVALID_STATE("COUNT_409_STATE", "盘点单状态不允许该操作", HttpStatus.CONFLICT),
     INCOMPLETE_RESULT("COUNT_409_INCOMPLETE", "盘点明细尚未全部录入", HttpStatus.CONFLICT),
     ALREADY_ADJUSTED("COUNT_409_ADJUSTED", "盘点单已经完成库存调整", HttpStatus.CONFLICT),
+    ALREADY_CANCELLED("COUNT_409_CANCELLED", "盘点单已经取消", HttpStatus.CONFLICT),
+    BELOW_FROZEN("COUNT_409_BELOW_FROZEN", "实盘数量小于冻结库存，请修正结果或取消盘点后处理占用业务", HttpStatus.CONFLICT),
     CONCURRENT_MODIFICATION("COUNT_409_CONCURRENT", "盘点单已被其他请求修改", HttpStatus.CONFLICT),
     PERSISTENCE_FAILURE("COUNT_500_PERSISTENCE", "盘点数据写入失败", HttpStatus.INTERNAL_SERVER_ERROR);
 

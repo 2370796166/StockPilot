@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { ElButton, ElForm, ElFormItem, ElIcon, ElInput } from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/icon/style/css'
+import 'element-plus/es/components/input/style/css'
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'

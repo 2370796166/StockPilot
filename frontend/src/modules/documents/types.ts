@@ -5,7 +5,7 @@ export interface DocumentLine {
   lineNo?: number
   locationId: number
   skuId: number
-  quantity: number
+  quantity: string
 }
 export interface DocumentSummary {
   id: number

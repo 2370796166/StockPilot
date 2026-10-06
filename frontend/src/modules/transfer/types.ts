@@ -13,7 +13,7 @@ export interface TransferLine {
   sourceLocationId: number
   targetLocationId: number
   skuId: number
-  quantity: number
+  quantity: string
 }
 
 export interface TransferSummary {
@@ -32,9 +32,9 @@ export interface TransferDetail extends TransferSummary {
   lines: TransferLine[]
   transitRecords: Array<{
     transferLineId: number
-    outboundQuantity: number
-    inTransitQuantity: number
-    receivedQuantity: number
+    outboundQuantity: string
+    inTransitQuantity: string
+    receivedQuantity: string
     status: string
     version: number
   }>

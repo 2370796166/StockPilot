@@ -15,7 +15,7 @@ public interface InventoryCountMapper {
         id,count_no,warehouse_id,status,remark,created_by,created_by_name,
         counting_by,counting_by_name,counting_at,submitted_by,submitted_by_name,submitted_at,
         approved_by,approved_by_name,approved_at,adjusted_by,adjusted_by_name,adjusted_at,
-        created_at,updated_at,version
+        cancelled_by,cancelled_by_name,cancelled_at,cancel_reason,created_at,updated_at,version
         """;
 
     @Insert(
@@ -75,4 +75,19 @@ public interface InventoryCountMapper {
     @Update(
             "UPDATE inventory_count_order SET version=version+1 WHERE id=#{id} AND status='COUNTING' AND version=#{version}")
     int touchCounting(@Param("id") long id, @Param("version") int version);
+
+    @Update(
+            """
+        UPDATE inventory_count_order
+        SET status='CANCELLED',version=version+1,cancelled_by=#{actorId},
+            cancelled_by_name=#{actorName},cancelled_at=CURRENT_TIMESTAMP(3),cancel_reason=#{reason}
+        WHERE id=#{id} AND version=#{version}
+          AND status IN ('DRAFT','COUNTING','SUBMITTED','APPROVED')
+        """)
+    int cancel(
+            @Param("id") long id,
+            @Param("version") int version,
+            @Param("actorId") long actorId,
+            @Param("actorName") String actorName,
+            @Param("reason") String reason);
 }

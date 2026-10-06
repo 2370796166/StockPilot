@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { ElDescriptions, ElDescriptionsItem, ElDialog, ElTable, ElTableColumn } from 'element-plus'
+import 'element-plus/es/components/descriptions/style/css'
+import 'element-plus/es/components/descriptions-item/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
 import { computed } from 'vue'
 import type { TransferDetail } from '@/modules/transfer/types'
 import BusinessStatusTag from '@/shared/components/BusinessStatusTag.vue'

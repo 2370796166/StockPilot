@@ -4,7 +4,7 @@ MySQL 是库存唯一权威来源。Redis 缓存、锁或 RabbitMQ 消费成功�
 
 ## 维度与数量
 
-库存唯一维度为 `warehouse_id + location_id + sku_id`，库位必须属于对应仓库。数量为 `DECIMAL(19,4)`，Java 使用 `BigDecimal`。
+库存唯一维度为 `warehouse_id + location_id + sku_id`，库位必须属于对应仓库。数量为 `DECIMAL(19,4)`，Java 使用 `BigDecimal`。所有 BigDecimal 数量在 JSON 响应中使用普通十进制字符串，前端输入、回显和提交均保留字符串，不经 JavaScript Number；ID、版本和分页计数仍为整数。
 
 ```text
 actual = available + frozen
@@ -32,7 +32,7 @@ actual 为仍在实体仓库内的实际量，frozen 为已占用但未离仓的
 - 预期版本条件、单据行锁、稳定的多明细处理顺序和数据库唯一约束共同处理并发。
 - 同一业务动作不得重复生效。业务单号、明细维度和流水业务动作唯一键是最终幂等防线。
 - 流水记录三数量前值、差量、后值、业务来源、操作人和版本链，只新增或查询，普通接口不能修改/删除库存核心数据。
-- 入出库完成事务只写 Outbox；RabbitMQ 在提交后处理允许延迟的预警，不承担库存冻结或扣减。
+- 采购/销售完成及销售冻结/释放、调拨冻结/释放/收货、盘点调整在业务事务中记录 Outbox；RabbitMQ 在提交后处理允许延迟的预警，不承担库存冻结或扣减。可用量变化通过同步的内部事件交给 messaging 记录，不能改成异步监听或提交后才记录。
 
 ## 单据状态与限制
 
@@ -41,9 +41,13 @@ actual 为仍在实体仓库内的实际量，frozen 为已占用但未离仓的
 | 采购 | DRAFT → SUBMITTED → APPROVED → COMPLETED | 仅草稿可编辑；没有取消或拒绝 |
 | 销售 | DRAFT → RESERVED → APPROVED → COMPLETED | RESERVED / APPROVED 可取消为 CANCELLED 并释放 |
 | 调拨 | DRAFT → SUBMITTED → APPROVED → OUTBOUND_COMPLETED → IN_TRANSIT → COMPLETED | SUBMITTED / APPROVED 可取消；调出后禁止普通取消 |
-| 盘点 | DRAFT → COUNTING → SUBMITTED → APPROVED → ADJUSTED | 创建即锁定选定维度；调整完成释放，没有取消/退回 |
+| 盘点 | DRAFT → COUNTING → SUBMITTED → APPROVED → ADJUSTED | 创建即锁定选定维度；调整完成或取消时释放，未调整状态可取消，无退回 |
 
 调拨在途事实独立建模，不同时计入源仓或目标仓余额。盘点保存实际/可用/冻结/版本快照；差异为实盘减账面实际量，实盘不得小于冻结量。无差异调整也保留流水事实。盘点维度锁不等于冻结数量。
+
+盘点取消要求 INVENTORY_COUNT_WRITE、当前版本和非空原因（最多255字），允许 DRAFT / COUNTING / SUBMITTED / APPROVED 转为 CANCELLED，ADJUSTED 不可取消。取消和调整竞争同一单据行锁；取消按稳定顺序锁定余额，并把取消人、时间、原因、版本与维度锁释放共同提交。取消保留快照、实盘、差异和审核记录，不改变库存数量、不追加虚假库存流水。锁释放失败整单回滚。
+
+实盘结果可以如实保存低于冻结量的事实，但提交和审核会拒绝不可执行结果，调整阶段仍保留最终不变量校验。需要处理原销售/调拨占用时，先按真实原因取消盘点，再通过对应单据的正常业务入口处理冻结，之后重新建立盘点快照。
 
 ## 查询与 AI 解释边界
 

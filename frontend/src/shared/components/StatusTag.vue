@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElTag } from 'element-plus'
+import 'element-plus/es/components/tag/style/css'
 import type { DataStatus } from '@/shared/types/api'
 defineProps<{ status: DataStatus }>()
 </script>

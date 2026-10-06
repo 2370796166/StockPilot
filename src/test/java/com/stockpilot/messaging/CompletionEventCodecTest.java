@@ -37,6 +37,16 @@ class CompletionEventCodecTest {
         assertThrows(IllegalArgumentException.class, () -> codec.decodeAndValidate("{}"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(
+            com.stockpilot.inventory.domain.InventoryAvailabilityChanged.Action.class)
+    void supportsEachAvailabilityChangeWithTheVersionedEnvelope(
+            com.stockpilot.inventory.domain.InventoryAvailabilityChanged.Action action)
+            throws Exception {
+        var value = event(BusinessEventNames.availabilityEventName(action), 1);
+        assertEquals(value, codec.decodeAndValidate(json.writeValueAsString(value)));
+    }
+
     private CompletionBusinessEvent event(String name, int version) {
         return new CompletionBusinessEvent(
                 UUID.randomUUID().toString(),

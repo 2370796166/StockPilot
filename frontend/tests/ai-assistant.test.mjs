@@ -102,6 +102,40 @@ test('evidence preserves decimal precision, pagination and limits source destina
   component.unmount()
 })
 
+test('cancelling assistant aborts its HTTP signal and clears loading without an error', async () => {
+  let signal
+  const component = view((question, selections, inputSignal) => {
+    signal = inputSignal
+    return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('cancelled'))))
+  })
+  component.state.question = '查询库存'
+  const pending = component.state.send()
+  assert.equal(component.state.loading, true)
+  component.state.cancel()
+  await pending
+  assert.equal(signal.aborted, true)
+  assert.equal(component.state.loading, false)
+  assert.equal(component.state.error, '')
+  assert.equal(component.state.response, null)
+  component.unmount()
+})
+
+test('unmount aborts a pending assistant request', async () => {
+  let signal
+  const pending = deferred()
+  const component = view((question, selections, inputSignal) => {
+    signal = inputSignal
+    return pending.promise
+  })
+  component.state.question = '查询库存'
+  const send = component.state.send()
+  component.unmount()
+  assert.equal(signal.aborted, true)
+  pending.resolve(answer())
+  await send
+  assert.equal(component.state.response, null)
+})
+
 test('period and frozen results keep complete totals separate from paginated source details', async () => {
   const evidence = {
     tool: 'query_frozen_sources',

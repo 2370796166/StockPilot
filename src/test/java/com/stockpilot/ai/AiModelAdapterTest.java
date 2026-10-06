@@ -104,6 +104,21 @@ class AiModelAdapterTest {
     }
 
     @Test
+    void remainingQuestionBudgetBoundsTheProviderCall() {
+        delay = 500;
+        var failure =
+                assertThrows(
+                        AiModelAdapter.ModelFailure.class,
+                        () ->
+                                adapter(Duration.ofSeconds(2))
+                                        .complete(
+                                                json.createArrayNode(),
+                                                json.createArrayNode(),
+                                                Duration.ofMillis(100)));
+        assertEquals("QUESTION_TIMEOUT", failure.status());
+    }
+
+    @Test
     void slowProviderReturnsTimeout() {
         delay = 500;
         var adapter = adapter(Duration.ofMillis(100));

@@ -1,11 +1,16 @@
 <script setup lang="ts">
+import { ElButton, ElTable, ElTableColumn } from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
 import type { DocumentLine } from '@/modules/documents/types'
 import RemoteLocationSelect from './RemoteLocationSelect.vue'
 import RemoteMasterDataSelect from './RemoteMasterDataSelect.vue'
+import QuantityInput from './QuantityInput.vue'
 const props = defineProps<{ modelValue: DocumentLine[]; warehouseId?: number; disabled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: DocumentLine[]] }>()
 function add() {
-  emit('update:modelValue', [...props.modelValue, { locationId: 0, skuId: 0, quantity: 1 }])
+  emit('update:modelValue', [...props.modelValue, { locationId: 0, skuId: 0, quantity: '1' }])
 }
 function remove(index: number) {
   emit(
@@ -13,10 +18,16 @@ function remove(index: number) {
     props.modelValue.filter((_, i) => i !== index),
   )
 }
-function update(index: number, key: keyof DocumentLine, value: number | undefined) {
+function update(index: number, key: 'locationId' | 'skuId', value: number | undefined) {
   const copy = props.modelValue.map((line) => ({ ...line }))
   copy[index][key] = value || 0
   emit('update:modelValue', copy)
+}
+function updateQuantity(index: number, value: string) {
+  emit(
+    'update:modelValue',
+    props.modelValue.map((line, i) => (i === index ? { ...line, quantity: value } : { ...line })),
+  )
 }
 </script>
 <template>
@@ -61,14 +72,11 @@ function update(index: number, key: keyof DocumentLine, value: number | undefine
         label="数量"
         width="160"
         ><template #default="scope"
-          ><el-input-number
+          ><QuantityInput
             :model-value="scope.row.quantity"
-            :min="0.0001"
-            :precision="4"
             :disabled="disabled"
-            controls-position="right"
             style="width: 100%"
-            @update:model-value="update(scope.$index, 'quantity', $event)" /></template></el-table-column
+            @update:model-value="updateQuantity(scope.$index, $event)" /></template></el-table-column
       ><el-table-column
         v-if="!disabled"
         label="操作"

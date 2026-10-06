@@ -6,6 +6,7 @@ import com.stockpilot.inventory.count.domain.*;
 import com.stockpilot.inventory.count.mapper.*;
 import com.stockpilot.inventory.count.request.InventoryCountRequests;
 import com.stockpilot.inventory.count.vo.*;
+import com.stockpilot.inventory.domain.InventoryAvailabilityChanged;
 import com.stockpilot.inventory.service.InventoryCountAdjustmentCommand;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.vo.InventoryBalanceVO;
@@ -16,6 +17,7 @@ import java.math.BigDecimal;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,16 +40,19 @@ public class InventoryCountApplicationService {
     private final InventoryCountLineMapper lines;
     private final InventoryCountScopeMapper scopes;
     private final InventoryMutationApplicationService inventory;
+    private final ApplicationEventPublisher events;
 
     public InventoryCountApplicationService(
             InventoryCountMapper counts,
             InventoryCountLineMapper lines,
             InventoryCountScopeMapper scopes,
-            InventoryMutationApplicationService inventory) {
+            InventoryMutationApplicationService inventory,
+            ApplicationEventPublisher events) {
         this.counts = counts;
         this.lines = lines;
         this.scopes = scopes;
         this.inventory = inventory;
+        this.events = events;
     }
 
     // 分页查询盘点单摘要，用于查看当前盘点所处的业务阶段。
@@ -184,6 +189,7 @@ public class InventoryCountApplicationService {
         requireState(h, InventoryCountStatus.COUNTING);
         requireVersion(h, r.version());
         if (lines.countIncomplete(id) > 0) throw error(InventoryCountErrorCode.INCOMPLETE_RESULT);
+        requireExecutableResults(id);
         transition(h, InventoryCountStatus.COUNTING, InventoryCountStatus.SUBMITTED, a);
         return get(id);
     }
@@ -192,8 +198,13 @@ public class InventoryCountApplicationService {
     @Transactional
     public InventoryCountVO approve(
             long id, InventoryCountRequests.Transition r, AuthenticatedActor a) {
-        return simpleTransition(
-                id, r.version(), InventoryCountStatus.SUBMITTED, InventoryCountStatus.APPROVED, a);
+        requireActor(a);
+        InventoryCountEntity h = locked(id);
+        requireState(h, InventoryCountStatus.SUBMITTED);
+        requireVersion(h, r.version());
+        requireExecutableResults(id);
+        transition(h, InventoryCountStatus.SUBMITTED, InventoryCountStatus.APPROVED, a);
+        return get(id);
     }
 
     // 执行盘点调整：逐维度校验原快照和盘点锁，再将差异同步作用于实际量与可用量。
@@ -233,7 +244,70 @@ public class InventoryCountApplicationService {
         // 仅在全部明细调整及状态转换成功后释放维度锁；数量不符会触发整个事务回滚。
         if (scopes.deleteByCountId(id) != sorted.size())
             throw error(InventoryCountErrorCode.PERSISTENCE_FAILURE);
+        events.publishEvent(
+                new InventoryAvailabilityChanged(
+                        InventoryAvailabilityChanged.Action.COUNT_ADJUSTED,
+                        h.getId(),
+                        h.getCountNo(),
+                        h.getWarehouseId(),
+                        sorted.stream()
+                                .map(
+                                        line ->
+                                                new InventoryAvailabilityChanged.Dimension(
+                                                        line.getLocationId(), line.getSkuId()))
+                                .toList()));
         return get(id);
+    }
+
+    // Cancel keeps the original evidence and never changes inventory quantities.
+    @Transactional
+    public InventoryCountVO cancel(
+            long id, InventoryCountRequests.Cancel request, AuthenticatedActor actor) {
+        requireActor(actor);
+        if (request == null
+                || request.version() == null
+                || !StringUtils.hasText(request.reason())
+                || request.reason().trim().length() > 255)
+            throw error(InventoryCountErrorCode.INVALID_LINE);
+        InventoryCountEntity count = locked(id);
+        if (count.getStatus() == InventoryCountStatus.ADJUSTED)
+            throw error(InventoryCountErrorCode.ALREADY_ADJUSTED);
+        if (count.getStatus() == InventoryCountStatus.CANCELLED)
+            throw error(InventoryCountErrorCode.ALREADY_CANCELLED);
+        requireVersion(count, request.version());
+        List<InventoryCountLineEntity> sorted =
+                lines.selectByCountId(id).stream()
+                        .sorted(
+                                Comparator.comparing(InventoryCountLineEntity::getLocationId)
+                                        .thenComparing(InventoryCountLineEntity::getSkuId))
+                        .toList();
+        if (sorted.isEmpty()) throw error(InventoryCountErrorCode.INVALID_LINE);
+        for (var line : sorted)
+            inventory.lockCountBalanceForRelease(
+                    count.getWarehouseId(), line.getLocationId(), line.getSkuId());
+        if (counts.cancel(
+                                id,
+                                request.version(),
+                                actor.userId(),
+                                actor.username(),
+                                request.reason().trim())
+                        != 1
+                || scopes.deleteByCountId(id) != sorted.size())
+            throw error(InventoryCountErrorCode.PERSISTENCE_FAILURE);
+        return get(id);
+    }
+
+    private void requireExecutableResults(long id) {
+        var results = lines.selectByCountId(id);
+        if (results.isEmpty()
+                || results.stream().anyMatch(line -> line.getCountedQuantity() == null))
+            throw error(InventoryCountErrorCode.INCOMPLETE_RESULT);
+        if (results.stream()
+                .anyMatch(
+                        line ->
+                                line.getCountedQuantity()
+                                                .compareTo(line.getSnapshotFrozenQuantity())
+                                        < 0)) throw error(InventoryCountErrorCode.BELOW_FROZEN);
     }
 
     private InventoryCountVO simpleTransition(

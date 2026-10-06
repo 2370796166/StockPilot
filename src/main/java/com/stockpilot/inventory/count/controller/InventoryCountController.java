@@ -86,4 +86,13 @@ public class InventoryCountController {
             @PathVariable @Positive long id, @AuthenticationPrincipal AuthenticatedActor a) {
         return ApiResponse.success(inventoryCountService.adjust(id, a));
     }
+
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasAuthority('INVENTORY_COUNT_WRITE')")
+    public ApiResponse<InventoryCountVO> cancel(
+            @PathVariable @Positive long id,
+            @Valid @RequestBody InventoryCountRequests.Cancel request,
+            @AuthenticationPrincipal AuthenticatedActor actor) {
+        return ApiResponse.success(inventoryCountService.cancel(id, request, actor));
+    }
 }

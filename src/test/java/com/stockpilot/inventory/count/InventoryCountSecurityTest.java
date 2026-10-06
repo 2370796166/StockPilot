@@ -98,6 +98,24 @@ class InventoryCountSecurityTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void cancellationRequiresWritePermissionAndAReason() throws Exception {
+        String readOnly = token(List.of("INVENTORY_COUNT_READ"));
+        mvc.perform(
+                        post("/api/inventory-counts/1/cancel")
+                                .header("Authorization", "Bearer " + readOnly)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"version\":0,\"reason\":\"中止\"}"))
+                .andExpect(status().isForbidden());
+        String writer = token(List.of("INVENTORY_COUNT_WRITE"));
+        mvc.perform(
+                        post("/api/inventory-counts/1/cancel")
+                                .header("Authorization", "Bearer " + writer)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"version\":0,\"reason\":\" \"}"))
+                .andExpect(status().isBadRequest());
+    }
+
     private String token(List<String> permissions) {
         UserEntity user = new UserEntity();
         user.setId(1L);

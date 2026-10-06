@@ -19,6 +19,9 @@ public final class InventoryCountRequests {
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 
+    public record Cancel(
+            @NotNull @Min(0) Integer version, @NotBlank @Size(max = 255) String reason) {}
+
     public record Result(
             @NotNull @Positive Long lineId,
             @NotNull @DecimalMin("0") @Digits(integer = 15, fraction = 4)

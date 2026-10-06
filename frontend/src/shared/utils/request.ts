@@ -26,6 +26,7 @@ function redirectToLogin(): void {
 client.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiResponse<unknown>>) => {
+    if (axios.isCancel(error)) return Promise.reject(error)
     const status = error.response?.status
     if (status === 401) {
       if (error.config?.url === '/auth/login') {

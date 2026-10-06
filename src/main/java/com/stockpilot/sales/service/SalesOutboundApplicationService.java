@@ -2,6 +2,7 @@ package com.stockpilot.sales.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.stockpilot.inventory.domain.InventoryAvailabilityChanged;
 import com.stockpilot.inventory.domain.InventoryBusinessType;
 import com.stockpilot.inventory.service.InventoryMutationApplicationService;
 import com.stockpilot.inventory.service.OutboundInventoryCommand;
@@ -18,6 +19,7 @@ import com.stockpilot.shared.auth.AuthenticatedActor;
 import com.stockpilot.shared.exception.BusinessException;
 import java.math.BigDecimal;
 import java.util.*;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,18 +59,21 @@ public class SalesOutboundApplicationService {
     private final MasterDataReferenceApplicationService masterData;
     private final InventoryMutationApplicationService inventory;
     private final TransactionalOutboxApplicationService outbox;
+    private final ApplicationEventPublisher events;
 
     public SalesOutboundApplicationService(
             SalesOutboundMapper outbounds,
             SalesOutboundLineMapper lines,
             MasterDataReferenceApplicationService masterData,
             InventoryMutationApplicationService inventory,
-            TransactionalOutboxApplicationService outbox) {
+            TransactionalOutboxApplicationService outbox,
+            ApplicationEventPublisher events) {
         this.outbounds = outbounds;
         this.lines = lines;
         this.masterData = masterData;
         this.inventory = inventory;
         this.outbox = outbox;
+        this.events = events;
     }
 
     // 创建销售出库草稿：校验库存维度主数据和明细唯一性，但此时不冻结或扣减库存。
@@ -133,13 +138,16 @@ public class SalesOutboundApplicationService {
         }
         requireVersion(current, request.version());
         // 统一按库位、SKU 排序，使竞争相同库存维度的单据采用一致的更新顺序。
-        for (SalesOutboundLineEntity line : sorted(requireLines(id))) {
+        List<SalesOutboundLineEntity> affectedLines = sorted(requireLines(id));
+        for (SalesOutboundLineEntity line : affectedLines) {
             inventory.freezeOutbound(
                     command(current, line, InventoryBusinessType.OUTBOUND_FREEZE, actor));
         }
         if (outbounds.reserve(id, request.version(), actor.userId(), actor.username()) != 1) {
             throw error(SalesOutboundErrorCode.CONCURRENT_MODIFICATION);
         }
+        publishAvailability(
+                current, InventoryAvailabilityChanged.Action.SALES_RESERVED, affectedLines);
         return get(id);
     }
 
@@ -203,14 +211,35 @@ public class SalesOutboundApplicationService {
                 && current.getStatus() != SalesOutboundStatus.APPROVED) {
             throw invalidState(current, SalesOutboundStatus.RESERVED);
         }
-        for (SalesOutboundLineEntity line : sorted(requireLines(id))) {
+        List<SalesOutboundLineEntity> affectedLines = sorted(requireLines(id));
+        for (SalesOutboundLineEntity line : affectedLines) {
             inventory.releaseOutbound(
                     command(current, line, InventoryBusinessType.OUTBOUND_RELEASE, actor));
         }
         if (outbounds.cancel(id, current.getVersion(), actor.userId(), actor.username()) != 1) {
             throw error(SalesOutboundErrorCode.CONCURRENT_MODIFICATION);
         }
+        publishAvailability(
+                current, InventoryAvailabilityChanged.Action.SALES_CANCELLED, affectedLines);
         return get(id);
+    }
+
+    private void publishAvailability(
+            SalesOutboundEntity order,
+            InventoryAvailabilityChanged.Action action,
+            List<SalesOutboundLineEntity> affectedLines) {
+        events.publishEvent(
+                new InventoryAvailabilityChanged(
+                        action,
+                        order.getId(),
+                        order.getOutboundNo(),
+                        order.getWarehouseId(),
+                        affectedLines.stream()
+                                .map(
+                                        line ->
+                                                new InventoryAvailabilityChanged.Dimension(
+                                                        line.getLocationId(), line.getSkuId()))
+                                .toList()));
     }
 
     // 查询销售出库详情，包含预占、审核、完成或取消等各阶段审计信息。

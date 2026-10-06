@@ -1,4 +1,16 @@
 <script setup lang="ts">
+import { ElButton, ElCol, ElDialog, ElForm, ElFormItem, ElInput, ElRow, ElTable, ElTableColumn } from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/col/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/row/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import QuantityInput from '@/shared/components/QuantityInput.vue'
+import { isQuantity } from '@/shared/utils/quantity'
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createTransfer, updateTransfer } from '@/modules/transfer/api'
@@ -23,7 +35,7 @@ const form = reactive<{
 }>({ transferNo: '', remark: '', lines: [] })
 
 function addLine() {
-  form.lines.push({ sourceLocationId: 0, targetLocationId: 0, skuId: 0, quantity: 1 })
+  form.lines.push({ sourceLocationId: 0, targetLocationId: 0, skuId: 0, quantity: '1' })
 }
 
 function resetForm() {
@@ -55,7 +67,9 @@ async function save() {
     !targetWarehouseId ||
     sourceWarehouseId === targetWarehouseId ||
     !form.lines.length ||
-    form.lines.some((line) => !line.sourceLocationId || !line.targetLocationId || !line.skuId || line.quantity <= 0)
+    form.lines.some(
+      (line) => !line.sourceLocationId || !line.targetLocationId || !line.skuId || !isQuantity(line.quantity),
+    )
   ) {
     ElMessage.warning('请完整填写单号、不同的源/目标仓库及有效明细')
     return
@@ -175,10 +189,8 @@ async function save() {
           width="150"
         >
           <template #default="scope">
-            <el-input-number
+            <QuantityInput
               v-model="scope.row.quantity"
-              :min="0.0001"
-              :precision="4"
               style="width: 100%"
             />
           </template>

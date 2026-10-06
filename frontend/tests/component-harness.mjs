@@ -43,6 +43,7 @@ export function mount(file, input = {}, mocks = {}) {
     if (mocks[id]) return mocks[id]
     if (id === 'vue') return vue
     if (id.endsWith('.vue')) return {}
+    if (id.startsWith('element-plus/') && id.endsWith('/style/css')) return {}
     if (id === 'element-plus') return { ElMessage: { success() {}, warning() {} }, ElMessageBox: {} }
     if (id.startsWith('@/')) {
       const source = fs.readFileSync(new URL('../src/' + id.slice(2) + '.ts', import.meta.url), 'utf8')
@@ -53,7 +54,14 @@ export function mount(file, input = {}, mocks = {}) {
     }
     return require(id)
   }
-  vm.runInNewContext(output, { require: load, module, exports: module.exports, setTimeout, clearTimeout })
+  vm.runInNewContext(output, {
+    require: load,
+    module,
+    exports: module.exports,
+    setTimeout,
+    clearTimeout,
+    AbortController,
+  })
   const component = module.exports
   component.render = () => null
   const props = vue.reactive(input)

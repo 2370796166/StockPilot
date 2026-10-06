@@ -18,6 +18,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -52,6 +54,7 @@ class InventoryCountMySqlIT {
     @BeforeEach
     void clean() {
         jdbc.execute("DROP TRIGGER IF EXISTS fail_count_ledger");
+        jdbc.execute("DROP TRIGGER IF EXISTS fail_count_cancel");
         jdbc.update("DELETE FROM inventory_count_scope_lock");
         jdbc.update("DELETE FROM inventory_count_line");
         jdbc.update("DELETE FROM inventory_count_order");
@@ -85,6 +88,12 @@ class InventoryCountMySqlIT {
         assertEquals(InventoryCountStatus.ADJUSTED, adjusted.status());
         assertBalance(d, "10.0000", "10.0000", "0.0000");
         assertLedger(adjusted.countNo(), "10.0000", "10.0000", "0.0000", "无差异");
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM async_outbox_message WHERE event_name='stockpilot.inventory-count.adjusted' AND business_no=?",
+                        Integer.class,
+                        adjusted.countNo()));
         assertEquals("COUNT_409_ADJUSTED", code(() -> service.adjust(adjusted.id(), OPERATOR)));
     }
 
@@ -104,7 +113,11 @@ class InventoryCountMySqlIT {
         service.adjust(v.id(), OPERATOR);
         assertBalance(d, "7.0000", "3.0000", "4.0000");
         Dimension bad = dimension("10.0000", "6.0000", "4.0000");
-        InventoryCountVO invalid = approved(bad, "3.0000", "错误盘亏");
+        InventoryCountVO invalid = approved(bad, "4.0000", "错误盘亏");
+        // Simulate a legacy approved record: final inventory guard must still reject it.
+        jdbc.update(
+                "UPDATE inventory_count_line SET counted_quantity=3.0000,difference_quantity=-7.0000 WHERE count_id=?",
+                invalid.id());
         assertEquals("INVENTORY_409_INVARIANT", code(() -> service.adjust(invalid.id(), OPERATOR)));
         assertEquals("APPROVED", status(invalid.id()));
         assertBalance(bad, "10.0000", "6.0000", "4.0000");
@@ -157,6 +170,12 @@ class InventoryCountMySqlIT {
         assertBalance(second, "20.0000", "20.0000", "0.0000");
         assertEquals(0, ledgerCount(v.countNo()));
         assertEquals(2, scopeCount(v.id()));
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM async_outbox_message WHERE business_no=?",
+                        Integer.class,
+                        v.countNo()));
     }
 
     @Test
@@ -187,6 +206,235 @@ class InventoryCountMySqlIT {
                 1,
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM inventory_count_scope_lock", Integer.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = InventoryCountStatus.class,
+            names = {"DRAFT", "COUNTING", "SUBMITTED", "APPROVED"})
+    void cancellationPreservesEvidenceAndQuantitiesAndReleasesOnlyItsScope(
+            InventoryCountStatus stage) {
+        Dimension d = dimension("10.0000", "6.0000", "4.0000");
+        InventoryCountVO count = create(List.of(d));
+        if (stage != InventoryCountStatus.DRAFT) {
+            count =
+                    service.start(
+                            count.id(),
+                            new InventoryCountRequests.Transition(count.version()),
+                            OPERATOR);
+            count =
+                    service.recordResults(
+                            count.id(),
+                            new InventoryCountRequests.RecordResults(
+                                    count.version(),
+                                    List.of(
+                                            new InventoryCountRequests.Result(
+                                                    count.lines().get(0).id(),
+                                                    new BigDecimal("8.0000"),
+                                                    "真实盘亏"))),
+                            OPERATOR);
+            if (stage != InventoryCountStatus.COUNTING) {
+                count =
+                        service.submit(
+                                count.id(),
+                                new InventoryCountRequests.Transition(count.version()),
+                                OPERATOR);
+                if (stage == InventoryCountStatus.APPROVED)
+                    count =
+                            service.approve(
+                                    count.id(),
+                                    new InventoryCountRequests.Transition(count.version()),
+                                    AUDITOR);
+            }
+        }
+        var other = create(List.of(additional(d, "20.0000")));
+        var before = count;
+        var cancelled =
+                service.cancel(
+                        count.id(),
+                        new InventoryCountRequests.Cancel(count.version(), "  现场中止  "),
+                        OPERATOR);
+        assertEquals(InventoryCountStatus.CANCELLED, cancelled.status());
+        assertEquals(before.version() + 1, cancelled.version());
+        assertEquals(before.lines(), cancelled.lines());
+        assertEquals(OPERATOR.userId(), cancelled.cancelledBy());
+        assertEquals(OPERATOR.username(), cancelled.cancelledByName());
+        assertNotNull(cancelled.cancelledAt());
+        assertEquals("现场中止", cancelled.cancelReason());
+        assertEquals(0, scopeCount(cancelled.id()));
+        assertEquals(1, scopeCount(other.id()));
+        assertBalance(d, "10.0000", "6.0000", "4.0000");
+        assertEquals(0, ledgerCount(count.countNo()));
+        assertEquals(
+                "COUNT_409_CANCELLED",
+                code(
+                        () ->
+                                service.cancel(
+                                        before.id(),
+                                        new InventoryCountRequests.Cancel(before.version(), "重复"),
+                                        OPERATOR)));
+        assertEquals("COUNT_409_STATE", code(() -> service.adjust(before.id(), OPERATOR)));
+        // Cancellation really restores the normal inventory write path.
+        inventory.applyChange(
+                new InventoryChangeCommand(
+                        d.warehouse,
+                        d.location,
+                        d.sku,
+                        0,
+                        InventoryBusinessType.PURCHASE_RECEIPT,
+                        "AFTER-CANCEL-" + SEQ.incrementAndGet(),
+                        InventoryQuantityChange.receipt(BigDecimal.ONE),
+                        OPERATOR.userId(),
+                        OPERATOR.username()));
+        assertBalance(d, "11.0000", "7.0000", "4.0000");
+    }
+
+    @Test
+    void belowFrozenCannotBeSubmittedAndCanBeCancelledWithoutFakingTheCount() {
+        Dimension d = dimension("10.0000", "6.0000", "4.0000");
+        var count = create(List.of(d));
+        count =
+                service.start(
+                        count.id(),
+                        new InventoryCountRequests.Transition(count.version()),
+                        OPERATOR);
+        var recorded =
+                service.recordResults(
+                        count.id(),
+                        new InventoryCountRequests.RecordResults(
+                                count.version(),
+                                List.of(
+                                        new InventoryCountRequests.Result(
+                                                count.lines().get(0).id(),
+                                                new BigDecimal("3.0000"),
+                                                "真实短缺"))),
+                        OPERATOR);
+        assertEquals(
+                "COUNT_409_BELOW_FROZEN",
+                code(
+                        () ->
+                                service.submit(
+                                        recorded.id(),
+                                        new InventoryCountRequests.Transition(recorded.version()),
+                                        OPERATOR)));
+        assertEquals("COUNTING", status(recorded.id()));
+        assertEquals(1, scopeCount(recorded.id()));
+        service.cancel(
+                recorded.id(),
+                new InventoryCountRequests.Cancel(recorded.version(), "先处理冻结来源"),
+                OPERATOR);
+        assertEquals(0, scopeCount(recorded.id()));
+        assertBalance(d, "10.0000", "6.0000", "4.0000");
+    }
+
+    @Test
+    void staleVersionAndAdjustedCountCannotBeCancelled() {
+        Dimension d = dimension("10.0000", "10.0000", "0.0000");
+        var count = approved(d, "11.0000", "盘盈");
+        assertEquals(
+                "COUNT_409_CONCURRENT",
+                code(
+                        () ->
+                                service.cancel(
+                                        count.id(),
+                                        new InventoryCountRequests.Cancel(
+                                                count.version() - 1, "旧版本"),
+                                        OPERATOR)));
+        assertEquals(1, scopeCount(count.id()));
+        service.adjust(count.id(), OPERATOR);
+        assertEquals(
+                "COUNT_409_ADJUSTED",
+                code(
+                        () ->
+                                service.cancel(
+                                        count.id(),
+                                        new InventoryCountRequests.Cancel(
+                                                count.version(), "不能撤销调整"),
+                                        OPERATOR)));
+        assertBalance(d, "11.0000", "11.0000", "0.0000");
+        assertEquals(1, ledgerCount(count.countNo()));
+    }
+
+    @Test
+    void scopeDeletionFailureRollsBackCancellationAndItsAuditFields() {
+        Dimension d = dimension("10.0000", "10.0000", "0.0000");
+        var count = create(List.of(d));
+        jdbc.execute(
+                "CREATE TRIGGER fail_count_cancel BEFORE DELETE ON inventory_count_scope_lock FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced scope failure'");
+        assertThrows(
+                RuntimeException.class,
+                () ->
+                        service.cancel(
+                                count.id(),
+                                new InventoryCountRequests.Cancel(count.version(), "测试"),
+                                OPERATOR));
+        var saved = service.get(count.id());
+        assertEquals(InventoryCountStatus.DRAFT, saved.status());
+        assertEquals(count.version(), saved.version());
+        assertNull(saved.cancelledBy());
+        assertNull(saved.cancelReason());
+        assertEquals(1, scopeCount(count.id()));
+        assertBalance(d, "10.0000", "10.0000", "0.0000");
+    }
+
+    @Test
+    void concurrentCancelAndAdjustHaveExactlyOneWinner() throws Exception {
+        Dimension d = dimension("10.0000", "10.0000", "0.0000");
+        var count = approved(d, "11.0000", "盘盈");
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var cancel =
+                    pool.submit(
+                            () ->
+                                    raceAction(
+                                            ready,
+                                            start,
+                                            () ->
+                                                    service.cancel(
+                                                            count.id(),
+                                                            new InventoryCountRequests.Cancel(
+                                                                    count.version(), "现场取消"),
+                                                            OPERATOR)));
+            var adjust =
+                    pool.submit(
+                            () ->
+                                    raceAction(
+                                            ready,
+                                            start,
+                                            () -> service.adjust(count.id(), OPERATOR)));
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            var results =
+                    List.of(cancel.get(20, TimeUnit.SECONDS), adjust.get(20, TimeUnit.SECONDS));
+            assertEquals(1, results.stream().filter("OK"::equals).count());
+            String finalState = status(count.id());
+            assertTrue(finalState.equals("CANCELLED") || finalState.equals("ADJUSTED"));
+            boolean adjusted = finalState.equals("ADJUSTED");
+            assertBalance(
+                    d,
+                    adjusted ? "11.0000" : "10.0000",
+                    adjusted ? "11.0000" : "10.0000",
+                    "0.0000");
+            assertEquals(adjusted ? 1 : 0, ledgerCount(count.countNo()));
+            assertEquals(0, scopeCount(count.id()));
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    private String raceAction(CountDownLatch ready, CountDownLatch start, Runnable action)
+            throws Exception {
+        ready.countDown();
+        assertTrue(start.await(10, TimeUnit.SECONDS));
+        try {
+            action.run();
+            return "OK";
+        } catch (BusinessException exception) {
+            return exception.getErrorCode().code();
+        }
     }
 
     private String raceCreate(

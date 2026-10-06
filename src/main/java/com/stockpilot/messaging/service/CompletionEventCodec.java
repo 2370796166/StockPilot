@@ -32,7 +32,7 @@ public class CompletionEventCodec {
                 || event.businessNo() == null
                 || event.occurredAt() == null
                 || event.data() == null
-                || !BusinessEventNames.supportsCompletion(
+                || !BusinessEventNames.supportsInventoryChange(
                         event.eventName(), event.eventVersion())) {
             throw new IllegalArgumentException("Unsupported or incomplete completion event");
         }

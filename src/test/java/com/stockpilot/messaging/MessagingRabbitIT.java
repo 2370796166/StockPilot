@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.StockPilotApplication;
 import com.stockpilot.acceptance.IntegrationTestInfrastructure;
+import com.stockpilot.inventory.domain.InventoryAvailabilityChanged;
 import com.stockpilot.messaging.config.MessagingProperties;
 import com.stockpilot.messaging.domain.BusinessEventNames;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
@@ -26,6 +27,8 @@ import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
@@ -35,6 +38,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.ApplicationContextInitializer;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +46,7 @@ import org.springframework.context.annotation.FilterType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.support.TestPropertySourceUtils;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(classes = MessagingRabbitIT.TestApplication.class)
 @ContextConfiguration(initializers = MessagingRabbitIT.InfrastructureInitializer.class)
@@ -63,6 +68,8 @@ class MessagingRabbitIT {
     @Autowired RabbitAdmin rabbitAdmin;
     @Autowired MessagingProperties properties;
     @Autowired OutboxPublicationApplicationService publications;
+    @Autowired ApplicationEventPublisher events;
+    @Autowired TransactionTemplate transactions;
 
     @Autowired
     @Qualifier("deadLetterExchange") DirectExchange deadLetterExchange;
@@ -127,6 +134,35 @@ class MessagingRabbitIT {
                                                 + "' AND stage='CONSUME_RETRY'")
                                 >= 2,
                 10_000);
+    }
+
+    @ParameterizedTest
+    @EnumSource(InventoryAvailabilityChanged.Action.class)
+    void everyAvailabilityEventIsRoutedThroughTheRealBroker(
+            InventoryAvailabilityChanged.Action action) throws Exception {
+        var change =
+                new InventoryAvailabilityChanged(
+                        action,
+                        1L,
+                        "AVAIL-" + action.name(),
+                        2L,
+                        List.of(new InventoryAvailabilityChanged.Dimension(3L, 4L)));
+        transactions.executeWithoutResult(status -> events.publishEvent(change));
+        var event =
+                json.readValue(
+                        jdbc.queryForObject(
+                                "SELECT payload_json FROM async_outbox_message", String.class),
+                        CompletionBusinessEvent.class);
+        assertEquals(BusinessEventNames.availabilityEventName(action), event.eventName());
+        assertEquals(
+                BusinessEventNames.AVAILABILITY_ROUTING_KEY,
+                jdbc.queryForObject("SELECT routing_key FROM async_outbox_message", String.class));
+        when(completionEventConsumption.handle(any())).thenReturn(true);
+        assertTrue(publications.publishNextDue());
+        verify(completionEventConsumption, org.mockito.Mockito.timeout(10000)).handle(event);
+        assertEquals(
+                "PUBLISHED",
+                jdbc.queryForObject("SELECT status FROM async_outbox_message", String.class));
     }
 
     @Test

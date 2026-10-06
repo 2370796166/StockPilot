@@ -1,7 +1,9 @@
 package com.stockpilot.messaging;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -73,6 +75,23 @@ class OutboxPublicationApplicationServiceTest {
                         "publisher nack");
     }
 
+    @Test
+    void confirmedMessagePersistenceFailureIsNotSwallowedAsAMqRetry() {
+        Fixture fixture = new Fixture(0, 3);
+        when(fixture.outbox.markPublished(fixture.message.getMessageId())).thenReturn(0);
+        assertThrows(IllegalStateException.class, fixture.service::publishNextDue);
+        verify(fixture.outbox, never()).markFailure(any(), any(), any(), any());
+    }
+
+    @Test
+    void missingConfirmationTraceRollsBackRatherThanReportingSuccess() {
+        Fixture fixture = new Fixture(0, 3);
+        when(fixture.traces.insert(any(), any(), any(), eq("PUBLISHED"), any(), anyInt(), any()))
+                .thenReturn(0);
+        assertThrows(IllegalStateException.class, fixture.service::publishNextDue);
+        verify(fixture.outbox, never()).markFailure(any(), any(), any(), any());
+    }
+
     private static final class Fixture {
         final OutboxMessageMapper outbox = mock(OutboxMessageMapper.class);
         final MessageTraceMapper traces = mock(MessageTraceMapper.class);
@@ -86,6 +105,8 @@ class OutboxPublicationApplicationServiceTest {
             when(outbox.selectNextDueForUpdate()).thenReturn(message);
             when(outbox.markAttempt(message.getMessageId())).thenReturn(1);
             when(outbox.markPublished(message.getMessageId())).thenReturn(1);
+            when(outbox.markFailure(any(), any(), any(), any())).thenReturn(1);
+            when(traces.insert(any(), any(), any(), any(), any(), anyInt(), any())).thenReturn(1);
             MessagingProperties properties = new MessagingProperties();
             properties.setPublisherMaxAttempts(maximum);
             service =

@@ -6,10 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.stockpilot.StockPilotApplication;
 import com.stockpilot.acceptance.IntegrationTestInfrastructure;
+import com.stockpilot.messaging.config.MessagingProperties;
 import com.stockpilot.messaging.domain.BusinessEventNames;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
+import com.stockpilot.messaging.mapper.*;
+import com.stockpilot.messaging.service.CompletionEventCodec;
 import com.stockpilot.messaging.service.CompletionEventConsumptionApplicationService;
+import com.stockpilot.messaging.service.OutboxPublicationApplicationService;
 import com.stockpilot.messaging.service.TransactionalOutboxApplicationService;
+import com.stockpilot.sales.request.SalesOutboundRequests;
+import com.stockpilot.sales.service.SalesOutboundApplicationService;
+import com.stockpilot.shared.auth.AuthenticatedActor;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -17,6 +24,7 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,14 +61,23 @@ class MessagingMySqlIT {
     @Autowired TransactionTemplate transactions;
     @Autowired TransactionalOutboxApplicationService outbox;
     @Autowired CompletionEventConsumptionApplicationService completionEventConsumption;
+    @Autowired SalesOutboundApplicationService sales;
+    @Autowired CompletionEventCodec codec;
+    @Autowired OutboxMessageMapper outboxMapper;
+    @Autowired MessageTraceMapper traceMapper;
+    @Autowired FailureRecordMapper failureMapper;
 
     @BeforeEach
     void cleanFacts() {
+        jdbc.execute("DROP TRIGGER IF EXISTS fail_outbox_write");
+        jdbc.execute("DROP TRIGGER IF EXISTS fail_outbox_status");
         jdbc.update("DELETE FROM async_message_trace");
         jdbc.update("DELETE FROM async_consumed_message");
         jdbc.update("DELETE FROM low_stock_alert");
         jdbc.update("DELETE FROM safety_stock_rule");
         jdbc.update("DELETE FROM async_outbox_message");
+        jdbc.update("DELETE FROM sales_outbound_line");
+        jdbc.update("DELETE FROM sales_outbound_order");
         jdbc.update("DELETE FROM inventory_ledger");
         jdbc.update("DELETE FROM inventory_balance");
         jdbc.update("DELETE FROM warehouse_location");
@@ -185,6 +202,124 @@ class MessagingMySqlIT {
                         "SELECT COUNT(*) FROM async_consumed_message WHERE message_id='"
                                 + event.messageId()
                                 + "'"));
+    }
+
+    @Test
+    void realSalesFreezeAndReleaseProduceAtomicEventsAndOpenThenResolveTheAlert() {
+        var d = createDimension("100.0000", "50.0000");
+        var actor = new AuthenticatedActor(1L, "operator");
+        var order =
+                sales.create(
+                        new SalesOutboundRequests.Create(
+                                "SO-AVAILABILITY",
+                                d.warehouseId(),
+                                null,
+                                List.of(
+                                        new SalesOutboundRequests.Line(
+                                                d.locationId(),
+                                                d.skuId(),
+                                                new BigDecimal("60.0000")))),
+                        actor);
+        jdbc.execute(
+                "CREATE TRIGGER fail_outbox_write BEFORE INSERT ON async_outbox_message FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced availability outbox failure'");
+        try {
+            assertThrows(
+                    RuntimeException.class,
+                    () ->
+                            sales.reserve(
+                                    order.id(),
+                                    new SalesOutboundRequests.Transition(order.version()),
+                                    actor));
+            assertEquals("DRAFT", sales.get(order.id()).status().name());
+            assertEquals(
+                    new BigDecimal("100.0000"),
+                    jdbc.queryForObject(
+                            "SELECT available_quantity FROM inventory_balance WHERE id=?",
+                            BigDecimal.class,
+                            d.balanceId()));
+            assertEquals(0, count("SELECT COUNT(*) FROM inventory_ledger"));
+            assertEquals(0, count("SELECT COUNT(*) FROM async_outbox_message"));
+        } finally {
+            jdbc.execute("DROP TRIGGER IF EXISTS fail_outbox_write");
+        }
+        sales.reserve(order.id(), new SalesOutboundRequests.Transition(order.version()), actor);
+        var frozen =
+                codec.decodeAndValidate(
+                        jdbc.queryForObject(
+                                "SELECT payload_json FROM async_outbox_message WHERE event_name='stockpilot.sales-outbound.reserved'",
+                                String.class));
+        assertEquals(d.warehouseId(), frozen.data().warehouseId());
+        assertEquals(
+                List.of(new CompletionBusinessEvent.InventoryDimension(d.locationId(), d.skuId())),
+                frozen.data().dimensions());
+        assertTrue(completionEventConsumption.handle(frozen));
+        assertEquals(
+                "OPEN", jdbc.queryForObject("SELECT status FROM low_stock_alert", String.class));
+        sales.cancel(order.id(), actor);
+        var released =
+                codec.decodeAndValidate(
+                        jdbc.queryForObject(
+                                "SELECT payload_json FROM async_outbox_message WHERE event_name='stockpilot.sales-outbound.cancelled'",
+                                String.class));
+        assertTrue(completionEventConsumption.handle(released));
+        assertEquals(
+                "RESOLVED",
+                jdbc.queryForObject("SELECT status FROM low_stock_alert", String.class));
+        assertEquals(false, completionEventConsumption.handle(frozen));
+        assertEquals(
+                new BigDecimal("100.0000"),
+                jdbc.queryForObject(
+                        "SELECT available_quantity FROM inventory_balance WHERE id=?",
+                        BigDecimal.class,
+                        d.balanceId()));
+        assertEquals(2, count("SELECT COUNT(*) FROM inventory_ledger"));
+    }
+
+    @Test
+    void brokerConfirmFollowedByDatabaseFailureLeavesARecoverablePendingMessage() {
+        transactions.executeWithoutResult(
+                status ->
+                        outbox.enqueuePurchaseReceiptCompleted(
+                                1,
+                                "PR-CONFIRM-ROLLBACK",
+                                2,
+                                List.of(new CompletionBusinessEvent.InventoryDimension(3, 4))));
+        var sent = new AtomicInteger();
+        var publisher =
+                new OutboxPublicationApplicationService(
+                        outboxMapper,
+                        traceMapper,
+                        failureMapper,
+                        message -> sent.incrementAndGet(),
+                        new MessagingProperties());
+        jdbc.execute(
+                "CREATE TRIGGER fail_outbox_status BEFORE UPDATE ON async_outbox_message FOR EACH ROW BEGIN IF NEW.status='PUBLISHED' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced post-confirm failure'; END IF; END");
+        try {
+            assertThrows(
+                    RuntimeException.class,
+                    () -> transactions.execute(status -> publisher.publishNextDue()));
+            assertEquals(
+                    "PENDING",
+                    jdbc.queryForObject("SELECT status FROM async_outbox_message", String.class));
+            assertEquals(
+                    0,
+                    jdbc.queryForObject(
+                            "SELECT publish_attempts FROM async_outbox_message", Integer.class));
+            assertEquals(
+                    0,
+                    count(
+                            "SELECT COUNT(*) FROM async_message_trace WHERE stage IN ('PUBLISHED','PUBLISH_RETRY')"));
+        } finally {
+            jdbc.execute("DROP TRIGGER IF EXISTS fail_outbox_status");
+        }
+        Boolean published = transactions.execute(status -> publisher.publishNextDue());
+        assertEquals(Boolean.TRUE, published);
+        assertEquals(2, sent.get()); // At least once: same event may be confirmed twice after a
+        // crash/rollback.
+        assertEquals(
+                "PUBLISHED",
+                jdbc.queryForObject("SELECT status FROM async_outbox_message", String.class));
+        assertEquals(1, count("SELECT COUNT(*) FROM async_message_trace WHERE stage='PUBLISHED'"));
     }
 
     private CompletionBusinessEvent event(

@@ -1,16 +1,16 @@
-export type CountStatus = 'DRAFT' | 'COUNTING' | 'SUBMITTED' | 'APPROVED' | 'ADJUSTED'
+export type CountStatus = 'DRAFT' | 'COUNTING' | 'SUBMITTED' | 'APPROVED' | 'ADJUSTED' | 'CANCELLED'
 
 export interface CountLine {
   id: number
   lineNo: number
   locationId: number
   skuId: number
-  snapshotActualQuantity: number
-  snapshotAvailableQuantity: number
-  snapshotFrozenQuantity: number
+  snapshotActualQuantity: string
+  snapshotAvailableQuantity: string
+  snapshotFrozenQuantity: string
   snapshotBalanceVersion: number
-  countedQuantity: number | null
-  differenceQuantity: number | null
+  countedQuantity: string | null
+  differenceQuantity: string | null
   reason: string | null
 }
 
@@ -26,5 +26,9 @@ export interface CountSummary {
 }
 
 export interface CountDetail extends CountSummary {
+  cancelledBy: number | null
+  cancelledByName: string | null
+  cancelledAt: string | null
+  cancelReason: string | null
   lines: CountLine[]
 }

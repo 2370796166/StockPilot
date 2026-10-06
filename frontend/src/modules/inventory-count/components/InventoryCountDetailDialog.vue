@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import { ElAlert, ElDialog, ElTable, ElTableColumn } from 'element-plus'
+import 'element-plus/es/components/alert/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
 import { computed } from 'vue'
 import type { CountDetail } from '@/modules/inventory-count/types'
 import EntityRef from '@/shared/components/EntityRef.vue'
@@ -17,6 +22,12 @@ const visible = computed({
     title="盘点详情"
     width="900px"
   >
+    <el-alert
+      v-if="detail?.status === 'CANCELLED'"
+      type="info"
+      :closable="false"
+      :title="`取消人：${detail.cancelledByName}；时间：${detail.cancelledAt}；原因：${detail.cancelReason}`"
+    />
     <el-table
       v-if="detail"
       :data="detail.lines"

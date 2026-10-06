@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElPagination } from 'element-plus'
+import 'element-plus/es/components/pagination/style/css'
 defineProps<{ page: number; size: number; total: number }>()
 const emit = defineEmits<{ 'update:page': [value: number]; 'update:size': [value: number]; change: [] }>()
 function changePage(value: number) {

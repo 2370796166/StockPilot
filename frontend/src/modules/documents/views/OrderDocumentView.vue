@@ -1,4 +1,37 @@
 <script setup lang="ts">
+import {
+  ElButton,
+  ElCard,
+  ElCol,
+  ElDescriptions,
+  ElDescriptionsItem,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElOption,
+  ElRow,
+  ElSelect,
+  ElTable,
+  ElTableColumn as TableColumn,
+  vLoading,
+} from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/col/style/css'
+import 'element-plus/es/components/descriptions/style/css'
+import 'element-plus/es/components/descriptions-item/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/row/style/css'
+import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import 'element-plus/es/components/loading/style/css'
+import { isQuantity } from '@/shared/utils/quantity'
 import { sourceFilters } from '@/shared/utils/source-filters'
 import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -106,7 +139,12 @@ const documentRequest = useLatestRequest()
 function openCreate() {
   documentRequest.invalidate()
   editing.value = null
-  Object.assign(form, { no: '', warehouseId: undefined, remark: '', lines: [{ locationId: 0, skuId: 0, quantity: 1 }] })
+  Object.assign(form, {
+    no: '',
+    warehouseId: undefined,
+    remark: '',
+    lines: [{ locationId: 0, skuId: 0, quantity: '1' }],
+  })
   dialogVisible.value = true
 }
 async function openEdit(row: DocumentSummary) {
@@ -140,7 +178,7 @@ async function openDetail(row: DocumentSummary) {
 // 保存草稿前同时校验单头和所有明细；编辑请求携带版本，由后端乐观锁负责最终并发控制。
 async function submit() {
   if (submitting.value || !(await formRef.value?.validate().catch(() => false)) || !form.warehouseId) return
-  if (!form.lines.length || form.lines.some((line) => !line.locationId || !line.skuId || line.quantity <= 0)) {
+  if (!form.lines.length || form.lines.some((line) => !line.locationId || !line.skuId || !isQuantity(line.quantity))) {
     ElMessage.warning('请完整填写至少一条有效明细')
     return
   }
@@ -209,6 +247,8 @@ async function execute(row: DocumentSummary, item: ReturnType<typeof actions>[nu
 }
 const cancelLiveSearch = useLiveSearch([() => query.no], search)
 onMounted(load)
+const ElTableColumn = TableColumn<DocumentSummary>
+const LineTableColumn = TableColumn<DocumentLine>
 </script>
 <template>
   <div class="page-stack">
@@ -396,20 +436,20 @@ onMounted(load)
           :data="detail.lines"
           border
           style="margin-top: 16px"
-          ><el-table-column
+          ><LineTableColumn
             prop="lineNo"
             label="行号"
-            width="70" /><el-table-column label="库位"
+            width="70" /><LineTableColumn label="库位"
             ><template #default="scope"
               ><EntityRef
                 resource="locations"
-                :id="scope.row.locationId" /></template></el-table-column
-          ><el-table-column label="SKU"
+                :id="scope.row.locationId" /></template></LineTableColumn
+          ><LineTableColumn label="SKU"
             ><template #default="scope"
               ><EntityRef
                 resource="skus"
-                :id="scope.row.skuId" /></template></el-table-column
-          ><el-table-column
+                :id="scope.row.skuId" /></template></LineTableColumn
+          ><LineTableColumn
             prop="quantity"
             label="数量" /></el-table></template
     ></el-dialog>

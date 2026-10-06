@@ -20,6 +20,10 @@ final class InventoryCountViewAssembler {
                 count.getVersion(),
                 count.getCreatedAt(),
                 count.getUpdatedAt(),
+                count.getCancelledBy(),
+                count.getCancelledByName(),
+                count.getCancelledAt(),
+                count.getCancelReason(),
                 countLines.stream()
                         .map(
                                 line ->

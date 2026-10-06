@@ -62,6 +62,29 @@ public class TransactionalOutboxApplicationService {
                 dimensions);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String enqueueAvailabilityChanged(
+            com.stockpilot.inventory.domain.InventoryAvailabilityChanged event) {
+        if (event.documentId() <= 0
+                || event.warehouseId() <= 0
+                || event.businessNo() == null
+                || event.businessNo().isBlank()
+                || event.dimensions().isEmpty())
+            throw new IllegalArgumentException("Incomplete inventory availability event");
+        return enqueue(
+                BusinessEventNames.availabilityEventName(event.action()),
+                BusinessEventNames.AVAILABILITY_ROUTING_KEY,
+                event.documentId(),
+                event.businessNo(),
+                event.warehouseId(),
+                event.dimensions().stream()
+                        .map(
+                                d ->
+                                        new CompletionBusinessEvent.InventoryDimension(
+                                                d.locationId(), d.skuId()))
+                        .toList());
+    }
+
     // 生成全局唯一消息 ID，去重并稳定排序库存维度，然后同时写入 Outbox 和创建轨迹。
     private String enqueue(
             String eventName,

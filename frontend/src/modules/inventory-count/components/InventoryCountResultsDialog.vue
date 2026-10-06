@@ -1,4 +1,13 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElDialog, ElInput, ElTable, ElTableColumn } from 'element-plus'
+import 'element-plus/es/components/alert/style/css'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import QuantityInput from '@/shared/components/QuantityInput.vue'
+import { isQuantity, compareQuantities } from '@/shared/utils/quantity'
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { recordCountResults } from '@/modules/inventory-count/api'
@@ -23,8 +32,12 @@ watch(
 
 async function save() {
   const detail = props.detail
-  if (!detail || saving.value || lines.value.some((line) => line.countedQuantity === null || !line.reason?.trim())) {
-    ElMessage.warning('每条明细都必须填写实盘数量和原因')
+  if (
+    !detail ||
+    saving.value ||
+    lines.value.some((line) => !isQuantity(line.countedQuantity, true) || !line.reason?.trim())
+  ) {
+    ElMessage.warning('每条明细都必须填写有效实盘数量（最多四位小数）和原因')
     return
   }
   saving.value = true
@@ -34,11 +47,13 @@ async function save() {
       detail.version,
       lines.value.map((line) => ({
         lineId: line.id,
-        countedQuantity: Number(line.countedQuantity),
+        countedQuantity: line.countedQuantity!,
         reason: line.reason!.trim(),
       })),
     )
-    ElMessage.success('实盘结果已保存')
+    if (lines.value.some((line) => compareQuantities(line.countedQuantity!, line.snapshotFrozenQuantity) < 0))
+      ElMessage.warning('实盘低于冻结量，结果已保存；请核查，或取消盘点后处理冻结来源')
+    else ElMessage.success('实盘结果已保存')
     visible.value = false
     emit('saved', saved)
   } finally {
@@ -90,11 +105,7 @@ async function save() {
       />
       <el-table-column label="实盘量">
         <template #default="scope">
-          <el-input-number
-            v-model="scope.row.countedQuantity"
-            :min="0"
-            :precision="4"
-          />
+          <QuantityInput v-model="scope.row.countedQuantity" />
         </template>
       </el-table-column>
       <el-table-column label="原因">

@@ -3,13 +3,17 @@ package com.stockpilot.e2e;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doReturn;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.StockPilotApplication;
 import com.stockpilot.acceptance.IntegrationTestInfrastructure;
+import com.stockpilot.security.config.SecurityProperties;
+import com.stockpilot.security.service.AuthenticationApplicationService;
 import com.sun.net.httpserver.HttpServer;
 import java.math.BigDecimal;
 import java.net.InetSocketAddress;
@@ -19,11 +23,14 @@ import java.sql.Statement;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.*;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -71,6 +78,37 @@ class CoreBusinessE2EMySqlIT {
     @Autowired private TestRestTemplate http;
     @Autowired private ObjectMapper json;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private AuthenticationApplicationService authenticationService;
+    @SpyBean private SecurityProperties securityProperties;
+
+    @BeforeEach
+    void isolateBusinessFactsBetweenHttpScenarios() {
+        for (String table :
+                List.of(
+                        "async_failure_record",
+                        "async_message_trace",
+                        "async_consumed_message",
+                        "low_stock_alert",
+                        "safety_stock_rule",
+                        "async_outbox_message",
+                        "inventory_count_scope_lock",
+                        "inventory_count_line",
+                        "inventory_count_order",
+                        "stock_transfer_transit",
+                        "stock_transfer_line",
+                        "stock_transfer_order",
+                        "sales_outbound_line",
+                        "sales_outbound_order",
+                        "purchase_receipt_line",
+                        "purchase_receipt",
+                        "inventory_ledger",
+                        "inventory_balance",
+                        "warehouse_location",
+                        "sku",
+                        "supplier",
+                        "product_category",
+                        "warehouse")) jdbc.update("DELETE FROM " + table);
+    }
 
     @AfterAll
     static void dropDedicatedDatabase() throws Exception {
@@ -91,6 +129,198 @@ class CoreBusinessE2EMySqlIT {
                     "Core E2E failure. Dedicated database snapshot=" + diagnosticSnapshot(),
                     failure);
         }
+    }
+
+    @Test
+    void maximumDecimalSurvivesRealHttpCreateEditReceiptAndCountCancellation() {
+        String token = login(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD);
+        var apiSchema = request(HttpMethod.GET, "/v3/api-docs", null, token, HttpStatus.OK);
+        assertEquals(
+                "string",
+                apiSchema
+                        .path("components")
+                        .path("schemas")
+                        .path("InventoryBalanceVO")
+                        .path("properties")
+                        .path("actualQuantity")
+                        .path("type")
+                        .asText());
+        long warehouse =
+                requiredId(
+                        success(
+                                post(
+                                        "/api/master-data/warehouses",
+                                        masterData("DEC_WH", "Decimal Warehouse"),
+                                        token)));
+        long location =
+                requiredId(
+                        success(
+                                post(
+                                        "/api/master-data/locations",
+                                        Map.of(
+                                                "warehouseId",
+                                                warehouse,
+                                                "code",
+                                                "DEC_LOC",
+                                                "name",
+                                                "Decimal Location"),
+                                        token)));
+        long sku =
+                requiredId(
+                        success(
+                                post(
+                                        "/api/master-data/skus",
+                                        Map.of(
+                                                "code",
+                                                "DEC_SKU",
+                                                "name",
+                                                "Decimal SKU",
+                                                "unit",
+                                                "PCS"),
+                                        token)));
+        String maximum = "999999999999999.1234";
+        var draft =
+                success(
+                        post(
+                                "/api/inbound/purchase-receipts",
+                                document(
+                                        "receiptNo",
+                                        "DEC-PR",
+                                        warehouse,
+                                        location,
+                                        sku,
+                                        new BigDecimal(maximum)),
+                                token));
+        assertTrue(draft.path("lines").get(0).path("quantity").isTextual());
+        assertEquals(maximum, draft.path("lines").get(0).path("quantity").asText());
+        String path = "/api/inbound/purchase-receipts/" + requiredId(draft);
+        var edited =
+                success(
+                        request(
+                                HttpMethod.PUT,
+                                path,
+                                Map.of(
+                                        "version",
+                                        draft.path("version").asInt(),
+                                        "warehouseId",
+                                        warehouse,
+                                        "remark",
+                                        "exact roundtrip",
+                                        "lines",
+                                        List.of(
+                                                Map.of(
+                                                        "locationId",
+                                                        location,
+                                                        "skuId",
+                                                        sku,
+                                                        "quantity",
+                                                        maximum))),
+                                token,
+                                HttpStatus.OK));
+        assertEquals(maximum, edited.path("lines").get(0).path("quantity").asText());
+        var submitted = success(post(path + "/submit", transition(edited), token));
+        success(post(path + "/approve", transition(submitted), token));
+        success(post(path + "/complete", null, token));
+        var balance = balance(warehouse, location, sku, token);
+        assertTrue(balance.path("actualQuantity").isTextual());
+        assertEquals(maximum, balance.path("actualQuantity").asText());
+        assertEquals(maximum, balance.path("availableQuantity").asText());
+        var count =
+                success(
+                        post(
+                                "/api/inventory-counts",
+                                Map.of(
+                                        "countNo",
+                                        "DEC-COUNT",
+                                        "warehouseId",
+                                        warehouse,
+                                        "dimensions",
+                                        List.of(Map.of("locationId", location, "skuId", sku))),
+                                token));
+        assertEquals(maximum, count.path("lines").get(0).path("snapshotActualQuantity").asText());
+        var cancelled =
+                success(
+                        post(
+                                "/api/inventory-counts/" + requiredId(count) + "/cancel",
+                                Map.of("version", count.path("version").asInt(), "reason", "中止复核"),
+                                token));
+        assertEquals("CANCELLED", cancelled.path("status").asText());
+        assertEquals(BOOTSTRAP_ADMIN, cancelled.path("cancelledByName").asText());
+        assertEquals("中止复核", cancelled.path("cancelReason").asText());
+        assertEquals(
+                maximum, balance(warehouse, location, sku, token).path("actualQuantity").asText());
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM inventory_count_scope_lock WHERE count_id=?",
+                        Integer.class,
+                        requiredId(count)));
+    }
+
+    @Test
+    void bootstrapRoleFailureRollsBackTheUserAndRestartCanSucceed() {
+        doReturn(" bootstrap_rollback ").when(securityProperties).bootstrapAdminUsername();
+        doReturn("Rollback!2026").when(securityProperties).bootstrapAdminPassword();
+        jdbc.execute(
+                "CREATE TRIGGER fail_bootstrap_role BEFORE INSERT ON sys_user_role FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced bootstrap role failure'");
+        try {
+            assertThrows(RuntimeException.class, () -> authenticationService.run(null));
+            assertEquals(
+                    0,
+                    jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM sys_user WHERE username='bootstrap_rollback'",
+                            Integer.class));
+        } finally {
+            jdbc.execute("DROP TRIGGER IF EXISTS fail_bootstrap_role");
+        }
+        authenticationService.run(null);
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.id JOIN sys_role r ON r.id=ur.role_id WHERE u.username='bootstrap_rollback' AND r.code='ADMIN'",
+                        Integer.class));
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM sys_user WHERE username='bootstrap_rollback'",
+                        Integer.class));
+    }
+
+    @Test
+    void concurrentBootstrapCreatesOneAdministratorAndOneRoleBinding() throws Exception {
+        doReturn("bootstrap_race").when(securityProperties).bootstrapAdminUsername();
+        doReturn("Race!2026").when(securityProperties).bootstrapAdminPassword();
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Void> run =
+                    () -> {
+                        ready.countDown();
+                        assertTrue(start.await(10, TimeUnit.SECONDS));
+                        authenticationService.run(null);
+                        return null;
+                    };
+            var first = pool.submit(run);
+            var second = pool.submit(run);
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            first.get(20, TimeUnit.SECONDS);
+            second.get(20, TimeUnit.SECONDS);
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+        }
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM sys_user WHERE username='bootstrap_race'",
+                        Integer.class));
+        assertEquals(
+                1,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.id JOIN sys_role r ON r.id=ur.role_id WHERE u.username='bootstrap_race' AND r.code='ADMIN'",
+                        Integer.class));
     }
 
     private void executeCoreFlow() {
@@ -681,9 +911,9 @@ class CoreBusinessE2EMySqlIT {
     }
 
     private void assertInventoryInvariant(JsonNode balance) {
-        BigDecimal actual = balance.path("actualQuantity").decimalValue();
-        BigDecimal available = balance.path("availableQuantity").decimalValue();
-        BigDecimal frozen = balance.path("frozenQuantity").decimalValue();
+        BigDecimal actual = new BigDecimal(balance.path("actualQuantity").asText());
+        BigDecimal available = new BigDecimal(balance.path("availableQuantity").asText());
+        BigDecimal frozen = new BigDecimal(balance.path("frozenQuantity").asText());
         assertEquals(
                 0,
                 actual.compareTo(available.add(frozen)),
@@ -725,7 +955,8 @@ class CoreBusinessE2EMySqlIT {
 
     private void assertDecimal(BigDecimal expected, JsonNode actual, JsonNode diagnostic) {
         assertNotNull(actual, diagnostic::toString);
-        assertEquals(0, expected.compareTo(actual.decimalValue()), diagnostic::toString);
+        assertTrue(actual.isTextual(), diagnostic::toString);
+        assertEquals(0, expected.compareTo(new BigDecimal(actual.asText())), diagnostic::toString);
     }
 
     private boolean containsText(JsonNode array, String expected) {

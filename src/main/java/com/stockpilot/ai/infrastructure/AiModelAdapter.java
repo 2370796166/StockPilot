@@ -50,7 +50,9 @@ public class AiModelAdapter {
                     || properties.timeout().toMillis() < 100
                     || properties.timeout().toMillis() > 60000
                     || properties.maxToolCalls() < 1
-                    || properties.maxToolCalls() > 8) return "CONFIGURATION_ERROR";
+                    || properties.maxToolCalls() > 8
+                    || properties.totalTimeout().toMillis() < 100
+                    || properties.totalTimeout().toMillis() > 300000) return "CONFIGURATION_ERROR";
             return "READY";
         } catch (RuntimeException e) {
             return "CONFIGURATION_ERROR";
@@ -62,8 +64,21 @@ public class AiModelAdapter {
     }
 
     public ObjectNode complete(ArrayNode messages, ArrayNode tools) {
+        return complete(messages, tools, properties.timeout());
+    }
+
+    public java.time.Duration questionTimeout() {
+        return properties.totalTimeout();
+    }
+
+    public ObjectNode complete(ArrayNode messages, ArrayNode tools, java.time.Duration remaining) {
         String configurationStatus = configurationStatus();
         if (!"READY".equals(configurationStatus)) throw new ModelFailure(configurationStatus);
+        if (remaining == null || remaining.toMillis() <= 0)
+            throw new ModelFailure("QUESTION_TIMEOUT");
+        java.time.Duration timeout =
+                remaining.compareTo(properties.timeout()) < 0 ? remaining : properties.timeout();
+        boolean budgetLimited = remaining.compareTo(properties.timeout()) < 0;
         CompletableFuture<HttpResponse<byte[]>> pending = null;
         try {
             AiProvider provider = AiProvider.parse(properties.provider());
@@ -80,7 +95,7 @@ public class AiModelAdapter {
                             + "/chat/completions";
             HttpRequest request =
                     HttpRequest.newBuilder(URI.create(endpoint))
-                            .timeout(properties.timeout())
+                            .timeout(timeout)
                             .header("Content-Type", "application/json")
                             .header("Authorization", "Bearer " + properties.apiKey())
                             .POST(
@@ -88,8 +103,7 @@ public class AiModelAdapter {
                                             json.writeValueAsString(body), StandardCharsets.UTF_8))
                             .build();
             pending = client.sendAsync(request, ignored -> new LimitedBodySubscriber());
-            HttpResponse<byte[]> response =
-                    pending.get(properties.timeout().toMillis(), TimeUnit.MILLISECONDS);
+            HttpResponse<byte[]> response = pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (response.statusCode() != 200) throw new ModelFailure("MODEL_ERROR");
             JsonNode root = json.readTree(response.body());
             JsonNode choice = root.path("choices").path(0);
@@ -107,13 +121,15 @@ public class AiModelAdapter {
             safe.set("content", message.path("content"));
             return safe;
         } catch (TimeoutException e) {
-            throw new ModelFailure("MODEL_TIMEOUT");
+            throw new ModelFailure(budgetLimited ? "QUESTION_TIMEOUT" : "MODEL_TIMEOUT");
         } catch (ExecutionException e) {
             throw new ModelFailure(
-                    e.getCause() instanceof HttpTimeoutException ? "MODEL_TIMEOUT" : "MODEL_ERROR");
+                    e.getCause() instanceof HttpTimeoutException
+                            ? (budgetLimited ? "QUESTION_TIMEOUT" : "MODEL_TIMEOUT")
+                            : "MODEL_ERROR");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ModelFailure("MODEL_ERROR");
+            throw new ModelFailure("REQUEST_CANCELLED");
         } catch (ModelFailure e) {
             throw e;
         } catch (Exception e) {

@@ -151,7 +151,7 @@ for (const [requestToken, shouldClear] of [
     }
     const load = moduleLoader(
       {
-        axios: { default: { create: () => client } },
+        axios: { default: { create: () => client, isCancel: () => false } },
         'element-plus': {
           ElMessage: {
             error: () => {

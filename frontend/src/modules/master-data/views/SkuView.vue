@@ -1,4 +1,32 @@
 <script setup lang="ts">
+import {
+  ElButton,
+  ElCard,
+  ElCol,
+  ElDialog,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElOption,
+  ElRow,
+  ElSelect,
+  ElTable,
+  ElTableColumn as TableColumn,
+  vLoading,
+} from 'element-plus'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/col/style/css'
+import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
+import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/row/style/css'
+import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/table/style/css'
+import 'element-plus/es/components/table-column/style/css'
+import 'element-plus/es/components/loading/style/css'
 import { useLatestRequest } from '@/shared/composables/useLatestRequest'
 import { onMounted, reactive, ref } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -142,6 +170,7 @@ async function toggleStatus(row: SkuRecord) {
 }
 const cancelLiveSearch = useLiveSearch([() => query.code, () => query.name], search)
 onMounted(load)
+const ElTableColumn = TableColumn<SkuRecord>
 </script>
 <template>
   <div class="page-stack">

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { ElEmpty, ElIcon, ElTag } from 'element-plus'
+import 'element-plus/es/components/empty/style/css'
+import 'element-plus/es/components/icon/style/css'
+import 'element-plus/es/components/tag/style/css'
 import { computed } from 'vue'
 import { Box, Checked, OfficeBuilding, ShoppingBag, Switch, Tickets, TrendCharts, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/modules/auth/store'

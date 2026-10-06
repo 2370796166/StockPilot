@@ -15,6 +15,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -87,6 +88,7 @@ public class AuthenticationApplicationService implements ApplicationRunner {
 
     // 应用启动时可按环境变量创建首个管理员；凭据不写入配置文件，也不会覆盖已经存在的用户。
     // 创建后立即绑定预置 ADMIN 角色，缺少角色种子时直接阻止错误初始化。
+    @Transactional
     public void run(ApplicationArguments args) {
         if (!StringUtils.hasText(securityProperties.bootstrapAdminUsername())
                 && !StringUtils.hasText(securityProperties.bootstrapAdminPassword())) return;
@@ -94,20 +96,20 @@ public class AuthenticationApplicationService implements ApplicationRunner {
                 || !StringUtils.hasText(securityProperties.bootstrapAdminPassword()))
             throw new IllegalStateException(
                     "Bootstrap admin username and password must both be set");
-        if (userMapper.findByUsername(securityProperties.bootstrapAdminUsername()) != null) return;
+        String username = securityProperties.bootstrapAdminUsername().trim();
+        // Serialize bootstrap instances on the seeded role; do not grant an existing user's roles.
+        RoleEntity admin = roleMapper.findByCodeForUpdate("ADMIN");
+        if (admin == null || admin.getStatus() != SecurityStatus.ENABLED)
+            throw new IllegalStateException("Enabled ADMIN role missing");
+        if (userMapper.findByUsername(username) != null) return;
         UserEntity u = new UserEntity();
-        u.setUsername(securityProperties.bootstrapAdminUsername().trim());
+        u.setUsername(username);
         u.setDisplayName("系统管理员");
         u.setPasswordHash(passwordEncoder.encode(securityProperties.bootstrapAdminPassword()));
         u.setStatus(SecurityStatus.ENABLED);
-        userMapper.insert(u);
-        RoleEntity admin =
-                roleMapper.selectOne(
-                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<
-                                        RoleEntity>()
-                                .eq(RoleEntity::getCode, "ADMIN"));
-        if (admin == null) throw new IllegalStateException("ADMIN role missing");
-        userMapper.insertRoles(u.getId(), java.util.List.of(admin.getId()));
+        if (userMapper.insert(u) != 1
+                || userMapper.insertRoles(u.getId(), java.util.List.of(admin.getId())) != 1)
+            throw new IllegalStateException("Cannot create bootstrap administrator");
         auditService.recordLogin(u.getId(), u.getUsername(), "SUCCESS", "引导管理员已创建");
     }
 }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ElTag } from 'element-plus'
+import 'element-plus/es/components/tag/style/css'
 const props = defineProps<{ status: string }>()
 const labels: Record<string, string> = {
   DRAFT: '草稿',

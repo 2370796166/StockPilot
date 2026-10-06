@@ -6,6 +6,9 @@ import java.util.List;
 import org.apache.ibatis.annotations.*;
 
 public interface RoleMapper extends BaseMapper<RoleEntity> {
+    @Select("SELECT * FROM sys_role WHERE code=#{code} FOR UPDATE")
+    RoleEntity findByCodeForUpdate(String code);
+
     @Select(
             "SELECT permission_id FROM sys_role_permission WHERE role_id=#{roleId} ORDER BY permission_id")
     List<Long> findPermissionIds(long roleId);

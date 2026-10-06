@@ -45,6 +45,7 @@ npm run dev
 | [AI 助手](docs/operations/ai-assistant.md) | 模型配置、读取权限与能力边界 |
 | [RabbitMQ 运维](docs/operations/rabbitmq-reliability.md) | Outbox、重试、死信和失败记录 |
 | [测试说明](docs/testing.md) | 后端、前端与真实基础设施测试命令 |
+| [本轮优化交付](docs/architecture/optimization-delivery-2026-10-06.md) | 数量精度、盘点恢复、事务与实际验证结果 |
 | [产品范围](docs/business/requirements.md) | 已实现功能与限制 |
 | [库存规则](docs/business/inventory-rules.md) | 数量不变量、事务、幂等与状态机 |
 | [架构说明](docs/architecture/overview.md) | 模块职责与依赖边界 |
@@ -54,7 +55,7 @@ npm run dev
 - Compose 只包含 MySQL、Redis 和 RabbitMQ，前后端需单独运行；尚未提供应用 Docker 镜像或生产前端托管配置。
 - Redis、RabbitMQ、AI 默认关闭；MySQL 是基础业务运行的必需服务。
 - 当前权限为接口级 RBAC，没有仓库级数据权限；JWT 只有 Access Token。
-- 静态盘点没有取消或退回路径，创建后会锁定选定库存维度，调整完成才释放。
+- 静态盘点创建即锁定维度，未调整单据可填写原因后取消并释放锁；已调整单据不可取消，当前没有退回路径。
 - 安全库存规则、预警和消息人工补偿尚无管理页面/API。
 - AI 只读，真实模型供应商联调尚未验证，不支持自动制单或调整库存。
 - 示例数据库与消息凭据仅用于本地开发，生产部署需另行配置。

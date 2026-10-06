@@ -2,6 +2,16 @@
 
 测试命令从项目根目录执行，前端命令在 `frontend` 目录执行。不要把模拟数据库、模型或组件测试当作真实基础设施与浏览器验收。
 
+## 一键检查
+
+```powershell
+powershell -NoProfile -File scripts/verify.ps1
+# 已准备专用基础设施并设置下文环境变量时：
+powershell -NoProfile -File scripts/verify.ps1 -MySql -Rabbit
+```
+
+脚本依次执行后端 clean test、Spotless、打包、Compose 静态配置检查及前端测试、类型、Lint、格式和构建；任一步失败即停止。真实基础设施和浏览器/真实模型验收仍需独立执行。脚本不启停服务、不创建普通业务库、不清理开发队列；集成测试使用其自身的专用临时库。
+
 ## 常规检查
 
 后端常规测试不需要 MySQL、Redis 或 RabbitMQ：

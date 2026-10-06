@@ -1,6 +1,6 @@
 # RabbitMQ 与 Outbox 运维
 
-RabbitMQ 只处理采购/销售完成后的安全库存预警。库存数量、流水和单据状态在 MySQL 本地事务中完成，MQ 故障不回滚已提交的库存业务。
+RabbitMQ 只处理采购、销售、调拨和盘点引起的库存变化后的安全库存预警。库存数量、流水和单据状态在 MySQL 本地事务中完成，MQ 故障不回滚已提交的库存业务。
 
 ## 启用
 
@@ -13,12 +13,21 @@ docker compose ps
 
 ## 数据与投递链路
 
-1. 采购/销售完成事务同时写 `async_outbox_message`，回滚不留下成功事件。
+1. 采购/销售完成事务同时写 `async_outbox_message`；销售冻结/释放、调拨冻结/释放/收货、盘点调整的同步内部事件也在原业务事务中写 Outbox，回滚不留下成功事件。
 2. 调度器读取已提交事件，持久消息使用 mandatory 和 publisher confirm/return；确认后更新发布状态。
 3. 消费幂等键为消息 ID + 消费者名，与预警更新在同一 MySQL 事务提交。
 4. 预警查询 MySQL 最新可用库存，按仓库/库位/SKU阈值打开或解除。
 
-事件为 `stockpilot.purchase-receipt.completed` 和 `stockpilot.sales-outbound.completed` v1。交付允许重复，消费者依靠数据库幂等，不是端到端恰好一次。
+保留 `stockpilot.purchase-receipt.completed` 和 `stockpilot.sales-outbound.completed` v1，并增加以下 v1 事件，复用原消息信封和消费者：
+
+| 事件 | 可用量变化范围 |
+|---|---|
+| stockpilot.sales-outbound.reserved / cancelled | 销售冻结 / 取消释放的仓库、库位、SKU |
+| stockpilot.transfer.submitted / cancelled | 调拨源端冻结 / 取消释放的维度 |
+| stockpilot.transfer.received | 调拨目标端收货维度 |
+| stockpilot.inventory-count.adjusted | 盘点调整维度（无差异也允许重新评估） |
+
+新增事件统一使用 `business.inventory.availability-changed.v1` routing key，绑定到既有预警队列。销售实际出库和调拨调出不再次改变可用量；盘点取消不改变任何数量，因此不追加对应可用量事件。交付允许重复，消费者依靠数据库幂等，不是端到端恰好一次。发布失败与确认后的数据库失败分开处理：后者抛出并回滚，不能作为网络失败吞掉；状态或关键发布轨迹影响行数异常同样回滚。当前仍在短消息发布事务内等待 Broker confirm，尚未改为租约认领/事务外发布。
 
 ## 默认拓扑与重试
 

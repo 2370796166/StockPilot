@@ -24,5 +24,8 @@ export const transitionCount = (id: number, action: string, version?: number) =>
 export const recordCountResults = (
   id: number,
   version: number,
-  results: Array<{ lineId: number; countedQuantity: number; reason: string }>,
+  results: Array<{ lineId: number; countedQuantity: string; reason: string }>,
 ) => request<CountDetail>({ method: 'PUT', url: `/inventory-counts/${id}/results`, data: { version, results } })
+
+export const cancelCount = (id: number, version: number, reason: string) =>
+  request<CountDetail>({ method: 'POST', url: `/inventory-counts/${id}/cancel`, data: { version, reason } })

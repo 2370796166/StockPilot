@@ -3,9 +3,9 @@ export interface InventoryBalance {
   warehouseId: number
   locationId: number
   skuId: number
-  actualQuantity: number
-  availableQuantity: number
-  frozenQuantity: number
+  actualQuantity: string
+  availableQuantity: string
+  frozenQuantity: string
   version: number
   createdAt: string
   updatedAt: string
@@ -31,20 +31,20 @@ export interface InventoryLedger {
   warehouseId: number
   locationId: number
   skuId: number
-  beforeActualQuantity: number
-  changeActualQuantity: number
-  afterActualQuantity: number
-  beforeAvailableQuantity: number
-  changeAvailableQuantity: number
-  afterAvailableQuantity: number
-  beforeFrozenQuantity: number
-  changeFrozenQuantity: number
-  afterFrozenQuantity: number
+  beforeActualQuantity: string
+  changeActualQuantity: string
+  afterActualQuantity: string
+  beforeAvailableQuantity: string
+  changeAvailableQuantity: string
+  afterAvailableQuantity: string
+  beforeFrozenQuantity: string
+  changeFrozenQuantity: string
+  afterFrozenQuantity: string
   balanceVersionBefore: number
   balanceVersionAfter: number
-  countBookQuantity: number | null
-  countedQuantity: number | null
-  differenceQuantity: number | null
+  countBookQuantity: string | null
+  countedQuantity: string | null
+  differenceQuantity: string | null
   adjustmentReason: string | null
   operatorId: number
   operatorName: string

@@ -62,6 +62,7 @@ stockpilot:
     api-key: ${AI_API_KEY:}
     model: ${AI_MODEL:}
     timeout: ${AI_REQUEST_TIMEOUT:20s}
+    total-timeout: ${AI_TOTAL_TIMEOUT:90s}
     max-tool-calls: ${AI_MAX_TOOL_CALLS:6}
   cache:
     enabled: ${CACHE_ENABLED:false}

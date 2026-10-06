@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ElOption, ElSelect } from 'element-plus'
+import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/select/style/css'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { searchLocationOptions } from '@/modules/master-data/reference-options'
 import type { LocationRecord } from '@/modules/master-data/types'

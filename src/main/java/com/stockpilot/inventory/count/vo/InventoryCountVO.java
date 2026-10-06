@@ -14,6 +14,10 @@ public record InventoryCountVO(
         Integer version,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
+        Long cancelledBy,
+        String cancelledByName,
+        LocalDateTime cancelledAt,
+        String cancelReason,
         List<Line> lines) {
     public record Line(
             Long id,

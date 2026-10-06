@@ -220,6 +220,18 @@ class StockTransferMySqlIT {
         assertEquals(1, ledger(completed.transferNo(), "TRANSFER_OUT"));
         assertEquals(1, ledger(completed.transferNo(), "TRANSFER_IN"));
         assertEquals(0, ledger(completed.transferNo(), "TRANSFER_RELEASE"));
+        assertAvailabilityEvent(
+                completed.transferNo(),
+                "stockpilot.transfer.submitted",
+                r.sourceWarehouse,
+                r.sourceLocation,
+                r.sku);
+        assertAvailabilityEvent(
+                completed.transferNo(),
+                "stockpilot.transfer.received",
+                r.targetWarehouse,
+                r.targetLocation,
+                r.sku);
     }
 
     @Test
@@ -278,6 +290,12 @@ class StockTransferMySqlIT {
         assertEquals(StockTransferStatus.CANCELLED, cancelled.status());
         assertBalance(r.sourceWarehouse, r.sourceLocation, r.sku, "100.0000", "100.0000", "0.0000");
         assertEquals(1, ledger(cancelled.transferNo(), "TRANSFER_RELEASE"));
+        assertAvailabilityEvent(
+                cancelled.transferNo(),
+                "stockpilot.transfer.cancelled",
+                r.sourceWarehouse,
+                r.sourceLocation,
+                r.sku);
         assertEquals(
                 "TRANSFER_409_CANCELLED", code(() -> service.cancel(cancelled.id(), OPERATOR)));
         StockTransferVO second = submit(draft("TR-NOCANCEL-", r, "10.0000"));
@@ -436,6 +454,37 @@ class StockTransferMySqlIT {
     private String status(long id) {
         return jdbc.queryForObject(
                 "SELECT status FROM stock_transfer_order WHERE id=?", String.class, id);
+    }
+
+    private void assertAvailabilityEvent(
+            String no, String eventName, long warehouse, long location, long sku) {
+        String scope = " FROM async_outbox_message WHERE business_no=? AND event_name=?";
+        assertEquals(
+                1, jdbc.queryForObject("SELECT COUNT(*)" + scope, Integer.class, no, eventName));
+        assertEquals(
+                warehouse,
+                jdbc.queryForObject(
+                        "SELECT CAST(JSON_EXTRACT(payload_json,'$.data.warehouseId') AS UNSIGNED)"
+                                + scope,
+                        Long.class,
+                        no,
+                        eventName));
+        assertEquals(
+                location,
+                jdbc.queryForObject(
+                        "SELECT CAST(JSON_EXTRACT(payload_json,'$.data.dimensions[0].locationId') AS UNSIGNED)"
+                                + scope,
+                        Long.class,
+                        no,
+                        eventName));
+        assertEquals(
+                sku,
+                jdbc.queryForObject(
+                        "SELECT CAST(JSON_EXTRACT(payload_json,'$.data.dimensions[0].skuId') AS UNSIGNED)"
+                                + scope,
+                        Long.class,
+                        no,
+                        eventName));
     }
 
     private int ledger(String no, String type) {

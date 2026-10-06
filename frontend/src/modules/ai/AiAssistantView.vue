@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { ElAlert, ElButton, ElCard, ElEmpty, ElInput } from 'element-plus'
+import 'element-plus/es/components/alert/style/css'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/empty/style/css'
+import 'element-plus/es/components/input/style/css'
 import { ref, onBeforeUnmount } from 'vue'
 import { askAssistant } from '@/modules/ai/api'
 import type { AiAnswer, Candidate, Selection } from './types'
@@ -10,8 +16,13 @@ const question = ref(''),
   submittedQuestion = ref('')
 const selections = ref<Selection[]>([])
 let alive = true
+let pending: AbortController | undefined
+function cancel() {
+  pending?.abort()
+}
 onBeforeUnmount(() => {
   alive = false
+  cancel()
 })
 const examples = [
   'A 商品在一号仓还有多少实际、可用和冻结库存？',
@@ -29,6 +40,8 @@ const statuses: Record<string, string> = {
   FORBIDDEN: '权限不足',
   QUERY_FAILED: '业务查询失败',
   MODEL_TIMEOUT: '模型超时',
+  QUESTION_TIMEOUT: '问答时间超限',
+  REQUEST_CANCELLED: '已取消',
   MODEL_ERROR: '模型调用失败',
   INVALID_MODEL_RESPONSE: '模型响应无效',
   TOOL_LIMIT_EXCEEDED: '工具调用次数超限',
@@ -50,17 +63,20 @@ async function send(candidate?: Candidate) {
   loading.value = true
   error.value = ''
   response.value = null
+  const controller = new AbortController()
+  pending = controller
   try {
-    const result = await askAssistant(submittedQuestion.value, selections.value)
-    if (alive) response.value = result
+    const result = await askAssistant(submittedQuestion.value, selections.value, controller.signal)
+    if (alive && !controller.signal.aborted) response.value = result
   } catch (cause) {
-    if (alive) {
+    if (alive && !controller.signal.aborted) {
       const status = (cause as { response?: { status: number } }).response?.status
       error.value =
         status === 403 ? '当前账号无权访问，请联系管理员。' : '请求失败，未得到有效回答。请检查网络或稍后重试。'
     }
   } finally {
     if (alive) loading.value = false
+    if (pending === controller) pending = undefined
   }
 }
 </script>
@@ -93,6 +109,11 @@ async function send(candidate?: Candidate) {
           :disabled="loading || !question.trim()"
           @click="send()"
           >发送问题</el-button
+        >
+        <el-button
+          v-if="loading"
+          @click="cancel"
+          >取消等待</el-button
         >
       </div>
       <div class="example-questions">

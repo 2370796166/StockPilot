@@ -71,10 +71,14 @@ public class AiAssistantService {
         messages.addObject().put("role", "user").put("content", request.question());
         Set<String> callIds = new HashSet<>();
         int executed = 0;
+        AiRequestBudget budget =
+                new AiRequestBudget(aiModelAdapter.questionTimeout(), System::nanoTime);
         try {
             while (true) {
                 ObjectNode response =
-                        aiModelAdapter.complete(messages, aiToolService.definitions());
+                        aiModelAdapter.complete(
+                                messages, aiToolService.definitions(), budget.remaining());
+                budget.remaining();
                 JsonNode calls = response.get("tool_calls");
                 if (calls == null || calls.isNull() || (calls.isArray() && calls.isEmpty()))
                     return finish(response, results);
@@ -82,6 +86,7 @@ public class AiAssistantService {
                     throw new ModelFailure("TOOL_LIMIT_EXCEEDED");
                 // Validate the envelope of the whole batch before any business query.
                 for (JsonNode call : calls) {
+                    budget.remaining();
                     if (!"function".equals(call.path("type").asText())
                             || !call.path("id").isTextual()
                             || call.path("id").asText().isBlank()
@@ -107,6 +112,7 @@ public class AiAssistantService {
                                     request.selections());
                     executed++;
                     results.add(result);
+                    budget.remaining();
                     if (!result.status().equals("OK"))
                         return answer(result.status(), result.message(), results);
                     messages.addObject()
@@ -120,6 +126,8 @@ public class AiAssistantService {
                     e.status(),
                     switch (e.status()) {
                         case "MODEL_TIMEOUT" -> "模型请求超时，已查询的结构化结果仍可核对";
+                        case "QUESTION_TIMEOUT" -> "本次问答已达到时间上限，已查询的结构化结果仍可核对";
+                        case "REQUEST_CANCELLED" -> "本次问答已取消";
                         case "TOOL_LIMIT_EXCEEDED" -> "已达到本次工具调用上限，请缩小问题范围";
                         default -> "模型调用失败或响应无效，不能据此判断库存；已查询的结果见下方";
                     },

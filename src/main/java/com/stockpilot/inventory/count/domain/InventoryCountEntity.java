@@ -25,6 +25,42 @@ public class InventoryCountEntity {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer version;
+    private Long cancelledBy;
+    private String cancelledByName;
+    private LocalDateTime cancelledAt;
+    private String cancelReason;
+
+    public Long getCancelledBy() {
+        return cancelledBy;
+    }
+
+    public void setCancelledBy(Long value) {
+        cancelledBy = value;
+    }
+
+    public String getCancelledByName() {
+        return cancelledByName;
+    }
+
+    public void setCancelledByName(String value) {
+        cancelledByName = value;
+    }
+
+    public LocalDateTime getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public void setCancelledAt(LocalDateTime value) {
+        cancelledAt = value;
+    }
+
+    public String getCancelReason() {
+        return cancelReason;
+    }
+
+    public void setCancelReason(String value) {
+        cancelReason = value;
+    }
 
     public Long getId() {
         return id;

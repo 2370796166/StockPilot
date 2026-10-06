@@ -1,4 +1,28 @@
 <script setup lang="ts">
+import {
+  ElAside,
+  ElButton,
+  ElContainer,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElHeader,
+  ElIcon,
+  ElMain,
+  ElMenu,
+  ElMenuItem,
+} from 'element-plus'
+import 'element-plus/es/components/aside/style/css'
+import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/container/style/css'
+import 'element-plus/es/components/dropdown/style/css'
+import 'element-plus/es/components/dropdown-item/style/css'
+import 'element-plus/es/components/dropdown-menu/style/css'
+import 'element-plus/es/components/header/style/css'
+import 'element-plus/es/components/icon/style/css'
+import 'element-plus/es/components/main/style/css'
+import 'element-plus/es/components/menu/style/css'
+import 'element-plus/es/components/menu-item/style/css'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
