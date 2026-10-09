@@ -45,6 +45,19 @@ MySQL 数据保存在 Compose 命名卷。`stop` 和不带 `-v` 的 `down` 保�
 
 本地应用账号具有库级权限；生产环境还需要账号权限隔离、定期备份和恢复验证。
 
+## 真实集成测试
+
+`mysql-it` 会创建随机专用测试库、从空库执行 Flyway，结束后删除该测试库。使用独立测试 MySQL 或有测试库创建/删除权限的账号，测试不会使用 `DB_URL` 指定的业务库。
+
+```powershell
+$env:STOCKPILOT_IT_ADMIN_URL='jdbc:mysql://127.0.0.1:3307/?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false'
+$env:STOCKPILOT_IT_ADMIN_USER='你的测试数据库管理员'
+$env:STOCKPILOT_IT_ADMIN_PASSWORD='你的测试数据库密码'
+mvn -s .mvn/settings.xml -Pmysql-it verify
+```
+
+URL 指向 MySQL 服务，不填业务库名；与宿主映射端口保持一致。不提供环境变量时使用本地测试默认3307/root/root_dev_only。GitHub CI 使用独立 MySQL8.0.46 服务和合成凭据。
+
 ## 常见问题
 
 | 现象 | 检查 |

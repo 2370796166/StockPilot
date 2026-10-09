@@ -1,6 +1,14 @@
 import type { PageResult } from '@/shared/types/api'
 import type { TransferDetail, TransferLine, TransferStatus, TransferSummary } from '@/modules/transfer/types'
 import { request } from '@/shared/utils/request'
+function writableLines(lines: TransferLine[]) {
+  return lines.map(({ sourceLocationId, targetLocationId, skuId, quantity }) => ({
+    sourceLocationId,
+    targetLocationId,
+    skuId,
+    quantity,
+  }))
+}
 export const pageTransfers = (params: {
   page: number
   size: number
@@ -16,7 +24,8 @@ export const createTransfer = (data: {
   targetWarehouseId: number
   remark: string
   lines: TransferLine[]
-}) => request<TransferDetail>({ method: 'POST', url: '/transfers', data })
+}) =>
+  request<TransferDetail>({ method: 'POST', url: '/transfers', data: { ...data, lines: writableLines(data.lines) } })
 export const updateTransfer = (
   id: number,
   data: {
@@ -26,7 +35,12 @@ export const updateTransfer = (
     remark: string
     lines: TransferLine[]
   },
-) => request<TransferDetail>({ method: 'PUT', url: `/transfers/${id}`, data })
+) =>
+  request<TransferDetail>({
+    method: 'PUT',
+    url: `/transfers/${id}`,
+    data: { ...data, lines: writableLines(data.lines) },
+  })
 export const transitionTransfer = (id: number, action: string, version?: number) =>
   request<TransferDetail>({
     method: 'POST',

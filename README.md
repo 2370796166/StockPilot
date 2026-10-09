@@ -1,6 +1,52 @@
 # StockPilot
 
+[![Verify](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml/badge.svg)](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml)
+
 面向中小型制造、电商企业的仓储与库存管理平台。Java 17 / Spring Boot 3 后端，Vue 3 管理后台，MySQL 保存库存权威数据。包含采购入库、销售冻结与出库、调拨、盘点、库存流水和权限管理；Redis 缓存、RabbitMQ 异步预警、只读 AI 助手按需开启。
+
+## 核心设计
+
+| 业务问题 | 实现方式 | 代码入口 |
+|---|---|---|
+| 多张单据同时占用同一库存 | MySQL 条件更新检查可用量，检查影响行数；单据行锁协调重复动作，多明细按稳定顺序处理 | [库存写服务](src/main/java/com/stockpilot/inventory/service/InventoryMutationApplicationService.java) |
+| 单据成功但库存或流水失败 | 单据状态、余额和流水共同提交；任一明细失败整单回滚；唯一约束防重复生效 | [销售服务](src/main/java/com/stockpilot/sales/service/SalesOutboundApplicationService.java) |
+| 跨仓调拨及盘点 | 调出与收货分别提交，在途独立记录；盘点保存快照和维度锁，取消保留实盘证据 | [调拨](src/main/java/com/stockpilot/transfer/service/StockTransferApplicationService.java)、[盘点](src/main/java/com/stockpilot/inventory/count/service/InventoryCountApplicationService.java) |
+| MQ 故障或消息重复 | 业务事务写 Outbox，提交后发布，confirm/return、重试、消费幂等及死信处理；预警读取最新 MySQL 余额 | [消息发布](src/main/java/com/stockpilot/messaging/service/OutboxPublicationApplicationService.java) |
+| AI 误算数量或越权查询 | 只读工具白名单、逐工具授权、有限执行预算和证据校验；SQL/BigDecimal 计算数量，模型协议与任务编排分离 | [Agent](src/main/java/com/stockpilot/ai/service/AiAgentService.java)、[模型协议](src/main/java/com/stockpilot/ai/service/AiAgentModelProtocol.java) |
+
+库存按仓库、库位和 SKU 唯一，始终满足 `实际量 = 可用量 + 冻结量` 且三者非负。数量使用 `DECIMAL(19,4)` / `BigDecimal`，JSON 和前端全程使用十进制字符串。Redis 只缓存基础资料详情，业务有效性校验仍读 MySQL；缓存故障降级不决定库存结果。
+
+```mermaid
+flowchart LR
+    UI[Vue 管理后台] --> HTTP[Controller / JWT / RBAC]
+    HTTP --> Business[采购 / 销售 / 调拨 / 盘点 Service]
+    Business --> Inventory[统一库存写服务]
+    Inventory --> DB[(MySQL 余额 / 流水 / 单据)]
+    Business --> Outbox[同事务写 Outbox]
+    Outbox --> MQ[RabbitMQ 异步投递]
+    MQ --> Alert[幂等消费 / 安全库存预警]
+    Alert --> DB
+    HTTP --> Agent[只读 AI Agent]
+    Agent --> Query[公开业务查询 Service]
+    Query --> DB
+```
+
+后端保持一个 Spring Boot 部署单元。默认角色为管理员、业务员和审核员；权限控制业务动作，当前没有仓库级数据权限，也不强制制单人与审核人不同。没有压测指标，不承诺未经测量的 TPS、延迟或容量。
+
+## 演示流程
+
+完成下方启动和管理员配置后，先建立两个仓库及各自库位、一个 SKU，再按下表操作。单据编号需唯一；新库没有预置库存。先用管理员演示完整流程，也可分别使用业务员制单、审核员审核。
+
+| 步骤 | 操作 | 应看到的库存结果（实际 / 可用 / 冻结） |
+|---|---|---|
+| 1 | 源仓采购入库 100，提交、审核、完成 | 源仓 `100 / 100 / 0` |
+| 2 | 创建销售单 20 并冻结 | 源仓 `100 / 80 / 20` |
+| 3 | 取消该销售单 | 源仓恢复 `100 / 100 / 0`，保留冻结及释放流水 |
+| 4 | 调拨 15 到目标仓，依次提交、审核、调出、转在途、收货 | 源仓 `85 / 85 / 0`，目标仓 `15 / 15 / 0`；在途期间目标仓不提前增加 |
+| 5 | 源仓盘点，开始后录入实盘 83，提交、审核、调整 | 源仓 `83 / 83 / 0`，产生盘亏 2 的流水 |
+| 6 | 查询库存流水，按业务单号查看来源 | 可追溯上述采购、冻结、释放、调拨和盘点动作 |
+
+开启 AI 后，可用实际仓库/SKU 名称提问“源仓有哪些商品库存”“这个商品的冻结来源是什么”。数量每次重新查询，未开启 AI 也能演示完整业务。
 
 **第一次使用，先选一种启动方式，再按顺序配置。** 项目没有固定的默认登录密码，新数据库也不会自动生成演示库存。
 
@@ -330,6 +376,32 @@ npm ci
 npm test
 npm run build
 ```
+
+完整本地检查还需要 Python 3，项目根目录提供一键入口：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
+# 加上真实 MySQL / RabbitMQ 集成检查
+powershell -ExecutionPolicy Bypass -File scripts/verify.ps1 -MySql -Rabbit
+```
+
+真实集成测试自动创建带随机后缀的专用测试库并清理，数据库账号需有创建/删除测试库权限。宿主机默认 MySQL3307、RabbitMQ5673，消息 vhost 为 `/stockpilot-it`；与开发 `/stockpilot` 隔离，需提前创建并授权。端口或凭据不同可通过 `STOCKPILOT_IT_ADMIN_URL/USER/PASSWORD`、`STOCKPILOT_IT_RABBIT_HOST/PORT/USER/PASSWORD/VHOST` 配置；具体步骤见 [MySQL手册](docs/operations/mysql.md) 和 [RabbitMQ手册](docs/operations/rabbitmq-reliability.md)。
+
+[GitHub Actions](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml) 在 main 推送和 Pull Request 时检查后端测试/打包/格式、前端测试/类型/Lint/格式/构建、离线配置，以及真实 MySQL 和 RabbitMQ 集成；失败报告保留7天。CI 使用独立服务和合成凭据，不调用真实模型。
+
+CI 还启动实际 JAR，使用前端 API 模块执行 HTTP 验收：三类草稿编辑与数量精度、采购防重复、销售取消释放、调拨收货、盘点调整及完整流水链。该检查验证真实请求契约和业务结果，不等同浏览器页面验收。
+
+需要本地复现 HTTP 验收时，先启动连接**独立可丢弃测试库**的后端，再设置以下环境变量：
+
+```powershell
+$env:STOCKPILOT_SMOKE_URL='http://127.0.0.1:18085/api'
+$env:STOCKPILOT_SMOKE_USERNAME='你的测试管理员'
+$env:STOCKPILOT_SMOKE_PASSWORD='你的测试管理员密码'
+$env:STOCKPILOT_SMOKE_ALLOW_WRITES='true'
+node scripts/smoke-test.mjs
+```
+
+仅允许访问本机 API，必须显式开启写入。脚本通过正常业务接口创建随机前缀的合成数据，不删除业务记录；测试结束后由环境创建者清理专用库。不要对演示库或生产库执行。前端依赖需先 `npm ci --prefix frontend`；一键脚本可加 `-HttpSmoke` 使用同样环境变量。
 
 普通测试不调用真实模型。启用 AI 后，按第6节使用自己的模型配置和业务数据检查；健康通过只表示应用与数据库可用。
 

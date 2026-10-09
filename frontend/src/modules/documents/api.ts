@@ -16,6 +16,9 @@ function summary(kind: DocumentKind, raw: Record<string, unknown>): DocumentSumm
 function detail(kind: DocumentKind, raw: Record<string, unknown>): DocumentDetail {
   return { ...(raw as unknown as DocumentDetail), no: String(raw[noKey(kind)]) }
 }
+function writableLines(lines: DocumentLine[]) {
+  return lines.map(({ locationId, skuId, quantity }) => ({ locationId, skuId, quantity }))
+}
 
 export async function pageDocuments(
   kind: DocumentKind,
@@ -37,7 +40,7 @@ export async function createDocument(
   kind: DocumentKind,
   data: { no: string; warehouseId: number; remark: string; lines: DocumentLine[] },
 ) {
-  const body = { ...data, [noKey(kind)]: data.no, no: undefined }
+  const body = { ...data, [noKey(kind)]: data.no, no: undefined, lines: writableLines(data.lines) }
   return detail(kind, await request<Record<string, unknown>>({ method: 'POST', url: base(kind), data: body }))
 }
 export async function updateDocument(
@@ -45,7 +48,14 @@ export async function updateDocument(
   id: number,
   data: { version: number; warehouseId: number; remark: string; lines: DocumentLine[] },
 ) {
-  return detail(kind, await request<Record<string, unknown>>({ method: 'PUT', url: `${base(kind)}/${id}`, data }))
+  return detail(
+    kind,
+    await request<Record<string, unknown>>({
+      method: 'PUT',
+      url: `${base(kind)}/${id}`,
+      data: { ...data, lines: writableLines(data.lines) },
+    }),
+  )
 }
 export async function transitionDocument(kind: DocumentKind, id: number, action: string, version?: number) {
   return detail(
