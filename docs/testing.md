@@ -14,10 +14,6 @@ powershell -NoProfile -File scripts/verify.ps1 -MySql -Rabbit
 
 ## 常规检查
 
-2026-10-08 日常AI业务查询258项常规、6项核心HTTP/MySQL、69项前端及构建检查通过；四问真实DeepSeek题集未执行。能力边界见 [AI 助手说明](operations/ai-assistant.md)。常规编译后，真实模型验收入口为 `python -B scripts/test-ai-live.py --agent --case business_queries`；可用 `--build-directory` 指定隔离构建的target目录，凭据仍只从原项目本机.env读取，不复制到测试目录。
-
-历史验收结果不能代替当前改动的复验。普通测试不调用真实模型，真实MySQL/HTTP测试使用本机协议夹具。
-
 后端常规测试不需要 MySQL、Redis 或 RabbitMQ：
 
 ```powershell
@@ -85,20 +81,7 @@ mvn -s .mvn/settings.xml -Prabbit-it verify
 
 测试 RabbitMQ 连接可通过 `STOCKPILOT_IT_RABBIT_HOST/PORT/USER/PASSWORD/VHOST` 覆盖，默认 `localhost:5673`、`stockpilot / stockpilot_dev`、`/stockpilot-it`。交换机和队列使用本次随机库名前缀，不清理开发队列。验证发布确认、重试、死信、未知事件版本和幂等；测试拓扑残留需核实归属后清理。
 
-## 显式真实 Agent 验收
-
-先完成 Maven 编译和常规测试，再单独执行（不要同时运行 Maven clean/编译）：
-
-```powershell
-python -B scripts/test_ai_live_config.py
-python -B scripts/test-ai-live.py --agent
-```
-
-第一条是离线配置测试；第二条从本机 `.env` 读取 DeepSeek 凭据，经 stdin 传给独立 Java 验收进程，创建随机专用 MySQL schema，使用真实 JWT/HTTP，结束后删除自己的库。默认 MySQL 为 localhost:33307，可用上述 STOCKPILOT_IT_ADMIN_* 覆盖。每轮最多28次模型请求，输出只记录脱敏诊断、案例和累计调用数。普通 mvn test、mysql-it、rabbit-it 均不会调用真实供应商；不加 --agent 的历史模式使用合成 Service。
-
-浏览器模式是独立验收夹具，使用真实 MySQL 和本机延迟假模型，不能视为真实 DeepSeek 浏览器组合。
-
-## 历史验证边界
+## 验证边界
 
 Compose 静态检查使用 `docker compose config --quiet`。它不要求引擎运行，也不能证明容器已启动或数据库 SQL 可执行。
 

@@ -1,6 +1,6 @@
 # 架构说明
 
-StockPilot 使用 Java 17、Spring Boot 3.5.16、Spring AI 1.1.8、MyBatis-Plus 3.5.5、Flyway、Spring Security/JWT 和 MySQL 8。后端为单 Maven 模块、单 Spring Boot JAR；前端为 Vue 3、TypeScript、Vite 和 Element Plus。Spring AI 1.1.x 对应 Boot 3.5.x，springdoc 同步使用 2.8.17。
+StockPilot 使用 Java 17、Spring Boot 3.2.3、MyBatis-Plus 3.5.5、Flyway、Spring Security/JWT 和 MySQL 8。后端为单 Maven 模块、单 Spring Boot JAR；前端为 Vue 3、TypeScript、Vite 和 Element Plus。
 
 ## 模块职责
 
@@ -24,11 +24,9 @@ StockPilot 使用 Java 17、Spring Boot 3.5.16、Spring AI 1.1.8、MyBatis-Plus 
 
 消息模块在采购/销售完成事务中写 Outbox；销售冻结/释放、调拨冻结/释放/收货、盘点调整使用 inventory 的稳定事件契约，通过同步事件监听在同一事务中记录 Outbox，避免 inventory 反向依赖 messaging。提交后异步投递；消费者通过 alert 公开 Service 更新预警，不负责库存扣减。Redis 只缓存商品/仓库详情，失败降级 MySQL，业务有效性校验仍直接读取数据库。
 
-AI 使用 Spring AI OpenAiChatModel 对接 DeepSeek，关闭 SDK 自动工具执行，由 AiAgentService 管理有预算的规划、执行、观察和补查循环。只调用公开业务 Service，每轮重新读取用户授权，每个工具检查权限及参数，不接受模型 SQL 或 URL。模型网络请求不在数据库事务内；数量由 MySQL/BigDecimal 计算，回答采用证据引用契约和后端业务解释。读取工具共享短期 REPEATABLE_READ 只读快照，多仓比较也在同一工具快照计算。会话只保留已确认条件和有限历史，当前数量每次重新查询；内存会话隔离用户、限容量与有效期，重启失效。旧 questions 接口保留签名计划续查兼容，不增加会话表或 Redis 用途。
+AI 调用公开业务 Service，每个工具检查权限及参数，不接受模型 SQL。模型网络请求不在数据库事务内；数量由 MySQL/BigDecimal 计算。当前冻结来源核对使用短期 REPEATABLE_READ 只读快照。
 
 ## 认证和前端
-
-AI 日常查询通过 `list_inventory` 和 `list_documents` 复用公开业务查询 Service，列表筛选在 MySQL 分页前执行。单据查询共享日期口径校验，保留各模块自己的状态与 Mapper；没有新增持久化模型。自然语言补充在同一任务中重新规划，复杂计划声明工具及范围目标并逐项核对新证据；未声明目标的兼容计划仍使用原意图规则。
 
 JWT 只保存身份和有效期。每次请求从 MySQL 重载用户、角色与权限；停用和授权变化即时影响已有 Token 的访问能力。密码使用 BCrypt，JWT 密钥由后端环境提供。未知接口默认拒绝。首次管理员创建、角色绑定和审计处于同一事务；通过 ADMIN 角色行锁协调并发初始化，不提升已有同名用户权限。
 
