@@ -331,7 +331,7 @@ npm test
 npm run build
 ```
 
-真实MySQL/RabbitMQ和真实模型验收需要显式运行，见 [测试说明](docs/testing.md)。普通测试或健康通过，不代表真实模型语义、性能和公网部署已全部验证。
+普通测试不调用真实模型。启用 AI 后，按第6节使用自己的模型配置和业务数据检查；健康通过只表示应用与数据库可用。
 
 IDEA点击停止，本地终端按Ctrl+C；完整Docker执行 `docker compose --profile app stop`。MySQL和RabbitMQ数据在命名卷里，重启保留；Flyway只执行未应用的迁移。
 
@@ -345,7 +345,8 @@ IDEA点击停止，本地终端按Ctrl+C；完整Docker执行 `docker compose --
 | [Docker手册](docs/operations/docker.md) | 镜像、网络、数据卷和两种模式 |
 | [启动手册](docs/operations/startup.md) | 本地开发启动补充 |
 | [AI说明](docs/operations/ai-assistant.md) | 工具、权限、会话和证据边界 |
-| [数据库说明](docs/architecture/database.md) | 初始化SQL、Flyway、核心表 |
-| [库存规则](docs/business/inventory-rules.md) | 数量不变量、事务、幂等和状态机 |
+| [MySQL说明](docs/operations/mysql.md) | 数据库连接、初始化、Flyway和备份 |
+| [Redis说明](docs/operations/redis.md) | 开启详情缓存、参数和故障排查 |
+| [RabbitMQ说明](docs/operations/rabbitmq-reliability.md) | 消息用途、Outbox、重试和死信 |
 
 仍为单企业模块化单体；没有多租户、批次、成本核算、Refresh Token或仓库级数据权限。安全库存规则和消息人工补偿暂无管理页面。AI只做只读查询，不支持自动制单和库存调整。

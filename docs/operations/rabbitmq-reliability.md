@@ -9,7 +9,7 @@ docker compose up -d rabbitmq
 docker compose ps
 ```
 
-等待 healthy，将根目录 `.env` 的 `RABBITMQ_ENABLED=true` 后重启后端。默认连接 `localhost:5673`，用户 `stockpilot / stockpilot_dev`，vhost `/stockpilot`。管理页面为 [http://localhost:15673](http://localhost:15673)。
+等待 healthy，将根目录 `.env` 的 `RABBITMQ_ENABLED=true` 后重启后端。IDEA 模式默认连接 `localhost:5673`，用户 `stockpilot`，密码取 `.env` 的 `RABBITMQ_PASSWORD`（模板演示值为 `stockpilot_dev`），vhost `/stockpilot`。完整 Docker 模式使用 `rabbitmq:5672`，修改配置后执行 `docker compose --profile app up -d --force-recreate backend`。管理页面为 [http://localhost:15673](http://localhost:15673)。已有数据卷不会因为修改 `.env` 自动改变账号密码。
 
 ## 数据与投递链路
 
@@ -57,4 +57,4 @@ docker compose ps
 
 当前没有异常人工补偿管理 API/页面、自动失败重放或积压告警。RabbitMQ 单节点命名卷提供本地持久化，不代表高可用或备份。正式运维恢复流程需结合授权、备份和审计另行建立。
 
-启动与数据卷见 [Docker 手册](docker.md)，真实 Broker 回归方法见 [测试说明](../testing.md)。
+启动与数据卷见 [Docker 手册](docker.md)，首次配置见根目录 [README](../../README.md)。

@@ -30,3 +30,15 @@ docs/acceptance/
 docs/architecture/decisions.md
 docs/architecture/optimization-review.md
 scripts/acceptance/
+
+# Publish only user-facing setup and middleware guides.
+# Keep project reviews, development notes and acceptance records locally.
+/docs/*
+!/docs/operations/
+/docs/operations/*
+!/docs/operations/startup.md
+!/docs/operations/mysql.md
+!/docs/operations/docker.md
+!/docs/operations/redis.md
+!/docs/operations/rabbitmq-reliability.md
+!/docs/operations/ai-assistant.md

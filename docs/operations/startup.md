@@ -56,13 +56,13 @@ docker compose up -d mysql
 docker compose ps
 ```
 
-等待 `stockpilot-mysql` 显示 `healthy`。异常时查看：
+等待 `mysql` 服务显示 `healthy`；容器名由 Compose 项目生成。异常时查看：
 
 ```powershell
 docker compose logs --tail=100 mysql
 ```
 
-首次空数据卷会自动运行 `docker/mysql/init/001-init.sql`。后端随后通过 Flyway 执行 `src/main/resources/db/migration` 下的全部待执行迁移，创建业务表与角色权限。不要重复手动导入这些 SQL；不要为重新初始化删除已有数据卷。详见 [数据库说明](../architecture/database.md) 和 [Docker 手册](docker.md)。
+首次空数据卷会自动运行 `docker/mysql/init/001-init.sql`。后端随后通过 Flyway 执行 `src/main/resources/db/migration` 下的全部待执行迁移，创建业务表与角色权限。不要重复手动导入这些 SQL；不要为重新初始化删除已有数据卷。详见 [MySQL 说明](mysql.md) 和 [Docker 手册](docker.md)。
 
 ## 启动后端
 
@@ -156,7 +156,7 @@ MYSQL_HOST_PORT=33307
 DB_URL=jdbc:mysql://localhost:33307/stockpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
 ```
 
-不要只修改其中一个。集成测试另有独立的连接变量，见 [测试说明](../testing.md)。
+不要只修改其中一个。完整 Docker 模式会自动使用容器内部端口。
 
 ## 常见故障
 
