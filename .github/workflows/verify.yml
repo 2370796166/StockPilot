@@ -30,8 +30,12 @@ jobs:
           cache: maven
       - name: Test, package and check Java formatting
         run: mvn -B -ntp -s .mvn/settings.xml -Dmaven.repo.local="$HOME/.m2/repository" clean verify spotless:check
-      - name: Check startup and credential configuration with synthetic values
-        run: python3 -m unittest discover -s scripts -p 'test_*_config.py'
+      - name: Validate both Compose profiles with synthetic configuration
+        env:
+          STOCKPILOT_ENV_FILE: .env.example
+        run: |
+          docker compose --env-file .env.example config --quiet
+          docker compose --env-file .env.example --profile app config --quiet
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -63,7 +67,7 @@ jobs:
       - run: npm run build
 
   integration:
-    name: MySQL, RabbitMQ and HTTP contracts
+    name: MySQL and RabbitMQ integration
     needs: [backend, frontend]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -107,11 +111,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: MySQL transactions, concurrency and authenticated HTTP
         run: mvn -B -ntp -s .mvn/settings.xml -Dmaven.repo.local="$HOME/.m2/repository" -Pmysql-it verify
       - name: Preserve MySQL reports before the broker suite
@@ -122,31 +121,6 @@ jobs:
           fi
       - name: Real broker confirms, retries, idempotency and dead letters
         run: mvn -B -ntp -s .mvn/settings.xml -Dmaven.repo.local="$HOME/.m2/repository" -Prabbit-it verify
-      - name: Prepare isolated HTTP smoke database
-        run: docker exec "${{ job.services.mysql.id }}" mysql -uroot -pci_it_password -e 'CREATE DATABASE stockpilot_smoke CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;'
-      - name: Install frontend contract dependencies
-        run: npm ci --prefix frontend
-      - name: Start packaged application and verify frontend write contracts
-        env:
-          DB_URL: jdbc:mysql://127.0.0.1:3307/stockpilot_smoke?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-          DB_USERNAME: root
-          DB_PASSWORD: ci_it_password
-          JWT_SECRET: synthetic-ci-smoke-jwt-secret-at-least-32-characters
-          BOOTSTRAP_ADMIN_USERNAME: smoke_admin
-          BOOTSTRAP_ADMIN_PASSWORD: SmokeAdmin!2026
-          SERVER_PORT: '18085'
-          CACHE_ENABLED: 'false'
-          RABBITMQ_ENABLED: 'false'
-          AI_ENABLED: 'false'
-          STOCKPILOT_SMOKE_URL: http://127.0.0.1:18085/api
-          STOCKPILOT_SMOKE_USERNAME: smoke_admin
-          STOCKPILOT_SMOKE_PASSWORD: SmokeAdmin!2026
-          STOCKPILOT_SMOKE_ALLOW_WRITES: 'true'
-        run: |
-          java -jar target/stockpilot-backend-0.0.1-SNAPSHOT.jar > target/smoke-backend.log 2>&1 &
-          app_pid=$!
-          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
-          node scripts/smoke-test.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
@@ -155,5 +129,4 @@ jobs:
             target/mysql-it-reports/
             target/failsafe-reports/
             target/surefire-reports/
-            target/smoke-backend.log
           retention-days: 7

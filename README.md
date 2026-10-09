@@ -377,31 +377,23 @@ npm test
 npm run build
 ```
 
-完整本地检查还需要 Python 3，项目根目录提供一键入口：
+以下完整本地检查在项目根目录执行，直接使用 Maven 和 npm：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/verify.ps1
-# 加上真实 MySQL / RabbitMQ 集成检查
-powershell -ExecutionPolicy Bypass -File scripts/verify.ps1 -MySql -Rabbit
+mvn -s .mvn/settings.xml clean verify spotless:check
+docker compose config --quiet
+docker compose --profile app config --quiet
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+npm --prefix frontend run format:check
+# 配好独立测试环境后，执行真实 MySQL / RabbitMQ 集成检查
+mvn -s .mvn/settings.xml -Pmysql-it verify
+mvn -s .mvn/settings.xml -Prabbit-it verify
 ```
 
 真实集成测试自动创建带随机后缀的专用测试库并清理，数据库账号需有创建/删除测试库权限。宿主机默认 MySQL3307、RabbitMQ5673，消息 vhost 为 `/stockpilot-it`；与开发 `/stockpilot` 隔离，需提前创建并授权。端口或凭据不同可通过 `STOCKPILOT_IT_ADMIN_URL/USER/PASSWORD`、`STOCKPILOT_IT_RABBIT_HOST/PORT/USER/PASSWORD/VHOST` 配置；具体步骤见 [MySQL手册](docs/operations/mysql.md) 和 [RabbitMQ手册](docs/operations/rabbitmq-reliability.md)。
 
-[GitHub Actions](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml) 在 main 推送和 Pull Request 时检查后端测试/打包/格式、前端测试/类型/Lint/格式/构建、离线配置，以及真实 MySQL 和 RabbitMQ 集成；失败报告保留7天。CI 使用独立服务和合成凭据，不调用真实模型。
-
-CI 还启动实际 JAR，使用前端 API 模块执行 HTTP 验收：三类草稿编辑与数量精度、采购防重复、销售取消释放、调拨收货、盘点调整及完整流水链。该检查验证真实请求契约和业务结果，不等同浏览器页面验收。
-
-需要本地复现 HTTP 验收时，先启动连接**独立可丢弃测试库**的后端，再设置以下环境变量：
-
-```powershell
-$env:STOCKPILOT_SMOKE_URL='http://127.0.0.1:18085/api'
-$env:STOCKPILOT_SMOKE_USERNAME='你的测试管理员'
-$env:STOCKPILOT_SMOKE_PASSWORD='你的测试管理员密码'
-$env:STOCKPILOT_SMOKE_ALLOW_WRITES='true'
-node scripts/smoke-test.mjs
-```
-
-仅允许访问本机 API，必须显式开启写入。脚本通过正常业务接口创建随机前缀的合成数据，不删除业务记录；测试结束后由环境创建者清理专用库。不要对演示库或生产库执行。前端依赖需先 `npm ci --prefix frontend`；一键脚本可加 `-HttpSmoke` 使用同样环境变量。
+[GitHub Actions](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml) 在 main 推送和 Pull Request 时检查后端测试/打包/格式、前端测试/类型/Lint/格式/构建、两种 Compose 配置，以及真实 MySQL 和 RabbitMQ 集成；失败报告保留7天。CI 使用独立服务和合成凭据，不调用真实模型。MySQL 集成测试包含认证 HTTP 检查。
 
 普通测试不调用真实模型。启用 AI 后，按第6节使用自己的模型配置和业务数据检查；健康通过只表示应用与数据库可用。
 

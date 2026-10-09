@@ -31,7 +31,8 @@ acceptance-edit.tmp.cjs
 docs/acceptance/
 docs/architecture/decisions.md
 docs/architecture/optimization-review.md
-scripts/acceptance/
+# Local verification tools are not required to build or deploy the application.
+/scripts/
 
 # Publish only user-facing setup and middleware guides.
 # Keep project reviews, development notes and acceptance records locally.
