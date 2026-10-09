@@ -33,6 +33,10 @@ docs/architecture/decisions.md
 docs/architecture/optimization-review.md
 # Local verification tools are not required to build or deploy the application.
 /scripts/
+/.github/workflows/
+# Manual live-model probes remain local; automated regression tests stay tracked.
+/src/test/java/com/stockpilot/ai/DeepSeekLiveAcceptance.java
+/src/test/java/com/stockpilot/ai/DeepSeekAgentAcceptance.java
 
 # Publish only user-facing setup and middleware guides.
 # Keep project reviews, development notes and acceptance records locally.

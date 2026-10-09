@@ -71,6 +71,6 @@ $env:STOCKPILOT_IT_RABBIT_VHOST='/stockpilot-it'
 mvn -s .mvn/settings.xml -Prabbit-it verify
 ```
 
-每组测试使用随机专用库和拓扑，结束后清理自己的交换机/队列。GitHub CI 直接创建独立 Broker 服务及测试 vhost；本地应优先使用独立测试容器，不清空开发队列。
+每组测试使用随机专用库和拓扑，结束后清理自己的交换机/队列。本地应优先使用独立测试容器，不清空开发队列。
 
 启动与数据卷见 [Docker 手册](docker.md)，首次配置见根目录 [README](../../README.md)。

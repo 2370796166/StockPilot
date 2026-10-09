@@ -56,7 +56,7 @@ $env:STOCKPILOT_IT_ADMIN_PASSWORD='你的测试数据库密码'
 mvn -s .mvn/settings.xml -Pmysql-it verify
 ```
 
-URL 指向 MySQL 服务，不填业务库名；与宿主映射端口保持一致。不提供环境变量时使用本地测试默认3307/root/root_dev_only。GitHub CI 使用独立 MySQL8.0.46 服务和合成凭据。
+URL 指向 MySQL 服务，不填业务库名；与宿主映射端口保持一致。不提供环境变量时使用本地测试默认3307/root/root_dev_only。
 
 ## 常见问题
 

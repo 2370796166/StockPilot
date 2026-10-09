@@ -1,7 +1,5 @@
 # StockPilot
 
-[![Verify](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml/badge.svg)](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml)
-
 面向中小型制造、电商企业的仓储与库存管理平台。Java 17 / Spring Boot 3 后端，Vue 3 管理后台，MySQL 保存库存权威数据。包含采购入库、销售冻结与出库、调拨、盘点、库存流水和权限管理；Redis 缓存、RabbitMQ 异步预警、只读 AI 助手按需开启。
 
 ## 核心设计
@@ -392,8 +390,6 @@ mvn -s .mvn/settings.xml -Prabbit-it verify
 ```
 
 真实集成测试自动创建带随机后缀的专用测试库并清理，数据库账号需有创建/删除测试库权限。宿主机默认 MySQL3307、RabbitMQ5673，消息 vhost 为 `/stockpilot-it`；与开发 `/stockpilot` 隔离，需提前创建并授权。端口或凭据不同可通过 `STOCKPILOT_IT_ADMIN_URL/USER/PASSWORD`、`STOCKPILOT_IT_RABBIT_HOST/PORT/USER/PASSWORD/VHOST` 配置；具体步骤见 [MySQL手册](docs/operations/mysql.md) 和 [RabbitMQ手册](docs/operations/rabbitmq-reliability.md)。
-
-[GitHub Actions](https://github.com/2370796166/StockPilot/actions/workflows/verify.yml) 在 main 推送和 Pull Request 时检查后端测试/打包/格式、前端测试/类型/Lint/格式/构建、两种 Compose 配置，以及真实 MySQL 和 RabbitMQ 集成；失败报告保留7天。CI 使用独立服务和合成凭据，不调用真实模型。MySQL 集成测试包含认证 HTTP 检查。
 
 普通测试不调用真实模型。启用 AI 后，按第6节使用自己的模型配置和业务数据检查；健康通过只表示应用与数据库可用。
 
