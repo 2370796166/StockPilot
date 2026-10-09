@@ -1,0 +1,16 @@
+# Explicit build inputs only. Never send local credentials, Git history or backups.
+**
+!Dockerfile
+!pom.xml
+!.mvn/
+!.mvn/settings.xml
+!src/
+!src/**
+# Exclude local configuration even if it lives below src.
+**/.env
+**/.env.*
+**/application-local.yml
+**/application-local.yaml
+**/*.log
+**/*.bak
+**/*.tmp

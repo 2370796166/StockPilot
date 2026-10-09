@@ -1,16 +1,15 @@
 services:
   mysql:
     image: mysql:8.0
-    container_name: stockpilot-mysql
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
       MYSQL_DATABASE: stockpilot
       MYSQL_USER: stockpilot
-      MYSQL_PASSWORD: stockpilot_dev
-      MYSQL_ROOT_PASSWORD: root_dev_only
+      MYSQL_PASSWORD: ${DB_PASSWORD:-stockpilot_dev}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_dev_only}
     ports:
-      - "${MYSQL_HOST_PORT:-3307}:3306"
+      - "${COMPOSE_BIND_IP:-127.0.0.1}:${MYSQL_HOST_PORT:-3307}:3306"
     volumes:
       - stockpilot_mysql_data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
@@ -25,10 +24,9 @@ services:
       - --collation-server=utf8mb4_0900_ai_ci
   redis:
     image: redis:7.2-alpine
-    container_name: stockpilot-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_HOST_PORT:-6380}:6379"
+      - "${COMPOSE_BIND_IP:-127.0.0.1}:${REDIS_HOST_PORT:-6380}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -37,16 +35,15 @@ services:
       start_period: 5s
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: stockpilot-rabbitmq
     hostname: stockpilot-rabbitmq
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: stockpilot
-      RABBITMQ_DEFAULT_PASS: stockpilot_dev
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-stockpilot_dev}
       RABBITMQ_DEFAULT_VHOST: /stockpilot
     ports:
-      - "${RABBITMQ_HOST_PORT:-5673}:5672"
-      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15673}:15672"
+      - "${COMPOSE_BIND_IP:-127.0.0.1}:${RABBITMQ_HOST_PORT:-5673}:5672"
+      - "${COMPOSE_BIND_IP:-127.0.0.1}:${RABBITMQ_MANAGEMENT_HOST_PORT:-15673}:15672"
     volumes:
       - stockpilot_rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -55,6 +52,63 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+
+  backend:
+    profiles: [app]
+    image: stockpilot-backend:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ${STOCKPILOT_ENV_FILE:-.env}
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: 8085
+      DB_URL: jdbc:mysql://mysql:3306/stockpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+      DB_USERNAME: stockpilot
+      DB_PASSWORD: ${DB_PASSWORD:-stockpilot_dev}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: stockpilot
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-stockpilot_dev}
+      RABBITMQ_VHOST: /stockpilot
+    ports:
+      - "${COMPOSE_BIND_IP:-127.0.0.1}:${BACKEND_HOST_PORT:-8085}:8085"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8085/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  frontend:
+    profiles: [app]
+    image: stockpilot-frontend:local
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${COMPOSE_BIND_IP:-127.0.0.1}:${FRONTEND_HOST_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
 volumes:
   stockpilot_mysql_data:

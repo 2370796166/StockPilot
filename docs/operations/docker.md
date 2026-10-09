@@ -1,64 +1,62 @@
-# Docker 基础设施手册
+# Docker 与本地开发
 
-根目录 `docker-compose.yml` 用于本地开发的 MySQL、Redis 和 RabbitMQ。没有后端、前端容器，没有一键启动完整应用的 Dockerfile；应用启动见 [启动手册](startup.md)。
+第一次启动请按根目录 [README](../../README.md) 完成 `.env`、JWT随机密钥和首次管理员设置。`.env.example` 是可提交模板；真实 `.env` 不进入Git、Docker构建上下文或前端镜像。
 
-## 服务、端口与持久化
+## 两种方式
 
-| 服务 | 镜像 | 默认宿主端口 → 容器端口 | 数据 |
+```powershell
+# 完整Docker：五个服务和应用镜像构建
+docker compose --profile app up -d --build
+# IDEA方式：只启动数据库，应用在宿主机运行
+docker compose up -d mysql
+```
+
+MySQL、Redis、RabbitMQ默认可用；backend/frontend属于app profile。基础设施健康后启动backend，backend健康后启动frontend。运行IDEA前先停止占用端口的Docker应用：`docker compose --profile app stop backend frontend`。
+
+## 服务和端口
+
+| 服务 | 镜像 | 默认宿主 → 容器端口 | 持久化 |
 |---|---|---|---|
-| mysql | `mysql:8.0` | `3307 → 3306` | 命名卷 `stockpilot_mysql_data` |
-| redis | `redis:7.2-alpine` | `6380 → 6379` | 无持久卷，可丢弃的查询缓存 |
-| rabbitmq | `rabbitmq:3.13-management-alpine` | `5673 → 5672`；`15673 → 15672` | 命名卷 `stockpilot_rabbitmq_data` |
+| mysql | mysql:8.0 | 3307 → 3306 | stockpilot_mysql_data命名卷 |
+| redis | redis:7.2-alpine | 6380 → 6379 | 可恢复缓存，无持久卷 |
+| rabbitmq | rabbitmq:3.13-management-alpine | 5673 → 5672；15673 → 15672 | stockpilot_rabbitmq_data命名卷 |
+| backend | 本机多阶段构建stockpilot-backend:local | 8085 → 8085 | 业务数据在MySQL |
+| frontend | 本机多阶段构建stockpilot-frontend:local | 5173 → 80 | Nginx提供构建后的Vue资源 |
 
-Compose 会为命名卷加项目名前缀，以 `docker volume ls` 显示的实际名称为准。固定容器名为 `stockpilot-mysql`、`stockpilot-redis`、`stockpilot-rabbitmq`，同机运行多个副本时会发生名称冲突。
+默认绑定127.0.0.1。端口变量为MYSQL_HOST_PORT、REDIS_HOST_PORT、RABBITMQ_HOST_PORT、RABBITMQ_MANAGEMENT_HOST_PORT、BACKEND_HOST_PORT、FRONTEND_HOST_PORT。容器名称由Compose项目生成，使用服务名查日志。RabbitMQ主机名保持stockpilot-rabbitmq以保持其持久化节点身份。
 
-MySQL 库名 `stockpilot`，开发用户 `stockpilot / stockpilot_dev`，root 密码 `root_dev_only`。RabbitMQ 用户 `stockpilot / stockpilot_dev`，开发 vhost `/stockpilot`；管理页面为 [http://localhost:15673](http://localhost:15673)。这些值在 Compose 中固定，后端的 `DB_PASSWORD` 和 `RABBITMQ_PASSWORD` 只改变连接配置，不会修改容器内部账号。
+容器之间使用mysql:3306、redis:6379、rabbitmq:5672；后端内固定8085。IDEA连接localhost和宿主映射端口，变更MYSQL_HOST_PORT时也要修改本地DB_URL。Nginx转发/api，支持SPA路由刷新和后端容器重新创建后的DNS解析。
 
-当前 Compose 是本地开发配置，端口没有限制为 loopback，Redis 未配置认证，镜像为浮动标签。部署到共享或公网环境前需调整暴露范围、凭据、版本和备份方案。
+## 配置与凭据
 
-## 启动和检查
+完整Docker后端通过运行时env_file读取根目录.env，再由environment覆盖容器内部地址。配置不会被复制到镜像。前端不接收.env和AI_API_KEY；浏览器只访问本项目API。
 
-从项目根目录执行：
+数据库和应用用户均为stockpilot，新MySQL卷用DB_PASSWORD设置应用密码，用MYSQL_ROOT_PASSWORD设置root密码。RabbitMQ固定用户stockpilot、vhost /stockpilot，新卷密码取RABBITMQ_PASSWORD。已有卷保留旧凭据，修改.env不等于重置数据库账号。
 
-```powershell
-docker compose config --quiet
-docker compose up -d mysql
-docker compose ps
-docker compose logs --tail=100 mysql
-```
+使用替代配置文件时，先设置STOCKPILOT_ENV_FILE为该文件路径，再使用同一文件：`docker compose --env-file 该文件 --profile app up -d --build`。这样Compose插值与后端env_file读取同一配置。
 
-基础业务等待 MySQL `healthy` 后即可启动。需要全部中间件时：
+AI、缓存、消息开关默认关闭；开启后需重新创建Docker后端：
 
 ```powershell
-docker compose up -d mysql redis rabbitmq
-docker compose ps
+docker compose --profile app up -d --force-recreate backend
 ```
 
-仅启动容器不会启用应用功能；根目录 `.env` 中还需分别设置 `CACHE_ENABLED=true`、`RABBITMQ_ENABLED=true`，再重启后端。
+只执行restart不会加载更改后的容器环境变量。源码更新则运行 `docker compose --profile app up -d --build backend frontend`。
 
-## 端口调整
-
-Compose 自动读取根目录 `.env` 中的 `MYSQL_HOST_PORT`、`REDIS_HOST_PORT`、`RABBITMQ_HOST_PORT` 和 `RABBITMQ_MANAGEMENT_HOST_PORT`。修改后重新执行 `docker compose up -d 对应服务`，并同步后端的 `DB_URL`、`REDIS_PORT` 或 `RABBITMQ_PORT`。
-
-后端当前在宿主机运行，连接宿主映射端口。容器间地址 `mysql:3306`、`redis:6379`、`rabbitmq:5672` 不能直接用于宿主机后端。
-
-## SQL 与数据卷
-
-- `docker/mysql/init/001-init.sql` 以只读方式挂载至 `/docker-entrypoint-initdb.d`，只在首次初始化空 MySQL 数据卷时执行，建立骨架版本表。
-- 完整业务表、权限和索引由后端启动时的 Flyway 迁移创建，SQL 位于 `src/main/resources/db/migration`。
-- 已有数据卷不会因重启、重新创建容器或改环境变量而重放初始化脚本，也不会自动修改旧凭据。
-- 更改项目目录名或 Compose 项目名可能选择另一个卷，看起来像“数据丢失”；先核对原卷与项目名，不要新建或删除卷来试错。
-
-完整迁移说明见 [数据库说明](../architecture/database.md)。
-
-## 日志、停止与恢复
+## 检查和停止
 
 ```powershell
-docker compose logs --tail=100 mysql redis rabbitmq
-docker compose stop
-docker compose up -d mysql
+docker compose --profile app config --quiet
+docker compose --profile app ps
+docker compose --profile app logs --tail=100 backend frontend
+Invoke-RestMethod http://localhost:5173/api/health
+docker compose --profile app stop
 ```
 
-`stop` 保留容器与数据；`down` 移除容器和网络，但保留命名卷。日常停止不要使用 `down -v`，它会删除 MySQL 和 RabbitMQ 的数据卷。重建、升级或手动修改数据库前应先备份，Redis 缓存不作为备份对象。
+根目录Dockerfile构建Java17后端，frontend/Dockerfile构建前端后由Nginx托管。镜像构建只打包；常规测试需独立执行 `mvn -s .mvn/settings.xml clean test` 和前端测试。
 
-MySQL 是库存唯一权威来源。Redis 不可用时详情读取降级 MySQL；RabbitMQ 不可用时库存事务照常提交，异步事件按 Outbox 重试和失败记录处理，见 [RabbitMQ 运维](rabbitmq-reliability.md)。
+MySQL首次空卷执行docker/mysql/init/001-init.sql建立骨架；后端启动时Flyway建立业务表并执行待应用迁移。不要重复手动导入SQL，不修改迁移历史。卷实际名称带Compose项目名前缀，改目录或项目名会选择另一套卷。
+
+stop保留容器和数据；`docker compose --profile app down`删除容器与网络、保留命名卷。日常不要加-v，它会删除数据库和消息数据。独立测试可用不同项目名和端口，不需要动已有卷。
+
+本配置提供本机演示入口，公网部署仍需配置域名、HTTPS、真实凭据、数据库权限和备份。MySQL始终是库存权威来源，Redis/MQ不会接管核心库存写入。

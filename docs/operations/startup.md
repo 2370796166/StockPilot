@@ -1,6 +1,6 @@
 # StockPilot 启动手册
 
-本文用于从源码启动本地开发环境。MySQL 运行在 Docker 中，后端和前端运行在宿主机；Redis、RabbitMQ、AI 按需启用。
+本文补充 IDEA/源码启动方式。完整 Docker 和新手首次配置请先按根目录 [README](../../README.md) 操作：`docker compose --profile app up -d --build` 会构建并启动前后端及基础设施；不启用 app profile 时可仅启动 MySQL，保留本地开发方式。Redis、RabbitMQ、AI 功能仍按开关启用。
 
 ## 环境要求
 
@@ -8,7 +8,7 @@
 |---|---|
 | Java | 推荐 JDK 17，项目编译目标为 17 |
 | Maven | 3.9+，命令使用项目内 `.mvn/settings.xml` |
-| Node.js / npm | Node.js 20+，安装依赖使用 `npm ci` |
+| Node.js / npm | Node.js 22+，安装依赖使用 `npm ci`；完整Docker模式不需要本机Node.js |
 | Docker | 引擎已启动，支持 Compose v2；Windows 使用 Linux 容器 |
 
 先执行 `java -version`、`mvn -version`、`node -v`、`npm -v`、`docker compose version` 和 `docker info`。确认 Maven 使用的 Java 版本，以及 Docker 引擎可连接。
@@ -141,7 +141,7 @@ npm run dev
 | `SERVER_PORT` | `8085` | 同步修改前端代理目标 |
 | `MYSQL_HOST_PORT` | `3307` | 仅改变容器映射；同步修改 `DB_URL` |
 | `DB_URL` | 本地 `stockpilot` JDBC URL | 数据库实际地址、端口与库名必须匹配 |
-| `DB_USERNAME` / `DB_PASSWORD` | `stockpilot` / `stockpilot_dev` | 后端连接凭据；不会修改 Compose 中的 MySQL 用户 |
+| `DB_USERNAME` / `DB_PASSWORD` | `stockpilot` / `stockpilot_dev` | 本地后端连接凭据；Docker新卷用DB_PASSWORD初始化stockpilot用户，已有卷不自动改密码 |
 | `JWT_SECRET` | 必须替换示例 | 至少 32 字符，无有效密钥不能登录 |
 | `JWT_ACCESS_TOKEN_MINUTES` | `60` | Token 有效期 |
 | `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` | 空 | 首次建账号使用，不能用于重置既有账号 |
