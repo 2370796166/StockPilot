@@ -13,6 +13,24 @@ public interface InventoryLedgerMapper {
     @Select(
             """
         <script>
+        SELECT business_no, business_type, COUNT(*) AS ledger_count,
+          SUM(change_actual_quantity) AS change_actual_quantity,
+          SUM(change_available_quantity) AS change_available_quantity,
+          SUM(change_frozen_quantity) AS change_frozen_quantity
+        FROM inventory_ledger
+        WHERE sku_id = #{query.dimension.skuId} AND warehouse_id = #{query.dimension.warehouseId}
+          AND occurred_at &gt;= #{query.startInclusive} AND occurred_at &lt; #{query.endExclusive}
+        <if test="query.dimension.locationId != null">AND location_id = #{query.dimension.locationId}</if>
+        GROUP BY business_no, business_type ORDER BY business_no, business_type
+        </script>
+        """)
+    IPage<com.stockpilot.inventory.vo.InventoryDocumentMovementVO> selectPeriodDocuments(
+            Page<com.stockpilot.inventory.vo.InventoryDocumentMovementVO> page,
+            @Param("query") com.stockpilot.inventory.request.InventoryPeriodQuery query);
+
+    @Select(
+            """
+        <script>
         SELECT business_type, COUNT(*) AS ledger_count,
                SUM(change_actual_quantity) AS change_actual_quantity,
                SUM(change_available_quantity) AS change_available_quantity,

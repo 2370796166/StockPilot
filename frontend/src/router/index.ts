@@ -23,7 +23,7 @@ const router = createRouter({
         {
           path: 'ai-assistant',
           name: 'ai-assistant',
-          component: () => import('@/modules/ai/AiAssistantView.vue'),
+          component: () => import('@/modules/ai/AiAgentView.vue'),
           meta: { title: 'AI 仓储助手' },
         },
         { path: '', redirect: '/dashboard' },

@@ -27,6 +27,153 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 class AiToolServiceTest {
+    @Test
+    void inventoryListNeedsNoSingleSkuAndPreservesThresholdPrecision() throws Exception {
+        auth("MASTER_DATA_READ", "INVENTORY_READ");
+        when(inventory.pageBalances(any()))
+                .thenReturn(
+                        new PageResult<>(
+                                List.of(
+                                        new InventoryBalanceVO(
+                                                1L,
+                                                2L,
+                                                3L,
+                                                1L,
+                                                new BigDecimal("20.1234"),
+                                                new BigDecimal("10.1234"),
+                                                new BigDecimal("10"),
+                                                0,
+                                                null,
+                                                null)),
+                                1,
+                                1,
+                                20));
+        var evidence =
+                tools.execute(
+                        "list_inventory",
+                        json.readTree("{\"belowAvailable\":\"20.1234\"}"),
+                        List.of());
+        assertEquals("OK", evidence.status());
+        assertEquals(
+                "10.1234",
+                evidence.data()
+                        .path("inventory")
+                        .path("records")
+                        .get(0)
+                        .path("availableQuantity")
+                        .asText());
+        var captured =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.stockpilot.inventory.request.InventoryBalancePageQuery.class);
+        verify(inventory).pageBalances(captured.capture());
+        assertNull(captured.getValue().getSkuId());
+        assertEquals(new BigDecimal("20.1234"), captured.getValue().getBelowAvailable());
+        assertEquals(
+                "INVALID_ARGUMENTS",
+                tools.execute(
+                                "list_inventory",
+                                json.readTree("{\"belowAvailable\":\"-1\"}"),
+                                List.of())
+                        .status());
+        verifyNoInteractions(skus, warehouses, locations);
+    }
+
+    @Test
+    void unfinishedSalesListRequiresOnlyTypeAndFiltersInsideBusinessService() throws Exception {
+        auth("SALES_OUTBOUND_READ");
+        when(sales.page(any()))
+                .thenReturn(
+                        new PageResult<>(
+                                List.of(
+                                        new com.stockpilot.sales.vo.SalesOutboundSummaryVO(
+                                                1L,
+                                                "SO1",
+                                                2L,
+                                                com.stockpilot.sales.domain.SalesOutboundStatus
+                                                        .DRAFT,
+                                                "private",
+                                                "operator",
+                                                0,
+                                                null,
+                                                null)),
+                                1,
+                                1,
+                                20));
+        var evidence =
+                tools.execute(
+                        "list_documents",
+                        json.readTree("{\"documentType\":\"SALES\",\"status\":\"UNFINISHED\"}"),
+                        List.of());
+        assertEquals("OK", evidence.status());
+        assertEquals(
+                "SO1",
+                evidence.data()
+                        .path("documents")
+                        .path("records")
+                        .get(0)
+                        .path("businessNo")
+                        .asText());
+        assertFalse(evidence.data().toString().contains("private"));
+        var captured =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.stockpilot.sales.request.SalesOutboundRequests.PageQuery.class);
+        verify(sales).page(captured.capture());
+        assertTrue(captured.getValue().isUnfinished());
+        assertNull(captured.getValue().getWarehouseId());
+        auth("PURCHASE_RECEIPT_READ");
+        assertNull(tools.authorizedView(evidence));
+    }
+
+    @Test
+    void documentListChecksTypePermissionAndFullDateRangeBeforeReading() throws Exception {
+        auth("SALES_OUTBOUND_READ");
+        assertEquals(
+                "FORBIDDEN",
+                tools.execute(
+                                "list_documents",
+                                json.readTree("{\"documentType\":\"PURCHASE\"}"),
+                                List.of())
+                        .status());
+        assertEquals(
+                "INVALID_ARGUMENTS",
+                tools.execute(
+                                "list_documents",
+                                json.readTree(
+                                        "{\"documentType\":\"SALES\",\"startDate\":\"2026-01-01\",\"endDate\":\"2026-10-08\"}"),
+                                List.of())
+                        .status());
+        verifyNoInteractions(sales, purchase, transfer, count);
+        when(sales.page(any())).thenReturn(new PageResult<>(List.of(), 0, 1, 20));
+        var evidence =
+                tools.execute(
+                        "list_documents",
+                        json.readTree(
+                                "{\"documentType\":\"SALES\",\"dateField\":\"COMPLETED\",\"startDate\":\"2026-10-01\",\"endDate\":\"2026-10-08\"}"),
+                        List.of());
+        assertEquals("NO_DATA", evidence.status());
+        var captured =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.stockpilot.sales.request.SalesOutboundRequests.PageQuery.class);
+        verify(sales).page(captured.capture());
+        assertEquals(java.time.LocalDate.of(2026, 10, 9), captured.getValue().getEndExclusive());
+        assertEquals(
+                com.stockpilot.shared.query.DocumentDateRangeQuery.DateField.COMPLETED,
+                captured.getValue().getDateField());
+    }
+
+    @Test
+    void codeAliasMustMapToUserMentionedNameAndRequiresMasterDataPermission() {
+        auth("MASTER_DATA_READ");
+        when(references.exactCode("warehouse", "W1", null))
+                .thenReturn(Optional.of(new ReferenceDataVO(2L, "W1", "一号仓", null, null)));
+        assertEquals("一号仓", tools.mentionedName("warehouse", "W1", "比较一号仓和二号仓"));
+        assertNull(tools.mentionedName("warehouse", "W1", "查看二号仓"));
+        clearInvocations(references);
+        auth("INVENTORY_READ");
+        assertNull(tools.mentionedName("warehouse", "W1", "查看一号仓"));
+        verifyNoInteractions(references);
+    }
+
     ObjectMapper json = new ObjectMapper().findAndRegisterModules();
     SkuApplicationService skus = mock(SkuApplicationService.class);
     WarehouseApplicationService warehouses = mock(WarehouseApplicationService.class);
@@ -38,6 +185,7 @@ class AiToolServiceTest {
     InventoryCountApplicationService count = mock(InventoryCountApplicationService.class);
     com.stockpilot.ai.service.AiFrozenInventoryService frozen =
             mock(com.stockpilot.ai.service.AiFrozenInventoryService.class);
+    MasterDataReferenceQueryService references = mock(MasterDataReferenceQueryService.class);
     AiToolService tools =
             new AiToolService(
                     json,
@@ -49,7 +197,31 @@ class AiToolServiceTest {
                     purchase,
                     transfer,
                     count,
-                    frozen);
+                    frozen,
+                    references);
+
+    @BeforeEach
+    void referenceFields() {
+        when(references.references(any(), any(), any()))
+                .thenAnswer(
+                        invocation -> {
+                            Map<String, ReferenceDataVO> found = new LinkedHashMap<>();
+                            Set<Long> skuIds = invocation.getArgument(0),
+                                    warehouseIds = invocation.getArgument(1),
+                                    locationIds = invocation.getArgument(2);
+                            if (skuIds.contains(1L))
+                                found.put("sku:1", new ReferenceDataVO(1L, "SKU1", "A", "件", null));
+                            if (warehouseIds.contains(2L))
+                                found.put(
+                                        "warehouse:2",
+                                        new ReferenceDataVO(2L, "W1", "一号仓", null, null));
+                            if (locationIds.contains(3L))
+                                found.put(
+                                        "location:3",
+                                        new ReferenceDataVO(3L, "L1", "库位", null, 2L));
+                            return found;
+                        });
+    }
 
     @AfterEach
     void clear() {
@@ -89,6 +261,7 @@ class AiToolServiceTest {
 
     @Test
     void whitelistAndParameterTypesAreClosed() throws Exception {
+        auth("MASTER_DATA_READ", "INVENTORY_READ");
         for (String args :
                 List.of(
                         "{\"sql\":\"SELECT *\"}",
@@ -157,6 +330,7 @@ class AiToolServiceTest {
                 3,
                 tools.execute("find_sku", args, List.of(new Selection("sku", "A", 3L)))
                         .data()
+                        .path("sku")
                         .path("id")
                         .asLong());
         assertEquals(
@@ -167,7 +341,7 @@ class AiToolServiceTest {
 
     @Test
     void missingConditionsAreClarified() throws Exception {
-        auth("MASTER_DATA_READ", "INVENTORY_READ");
+        auth("MASTER_DATA_READ", "INVENTORY_READ", "SALES_OUTBOUND_READ");
         assertEquals(
                 "NEEDS_CLARIFICATION",
                 tools.execute("query_balances", json.createObjectNode(), List.of()).status());
@@ -270,6 +444,29 @@ class AiToolServiceTest {
                         .startsWith("调拨冻结"));
         assertFalse(result.data().toString().contains("operatorName"));
         assertTrue(result.sources().get(0).path().contains("/transfers"));
+    }
+
+    @Test
+    void authorizedInventoryEvidenceDoesNotRequireLinkedDocumentPermission() throws Exception {
+        auth("MASTER_DATA_READ", "INVENTORY_READ");
+        var evidence =
+                new com.stockpilot.ai.vo.AiAnswerVO.Evidence(
+                        "query_ledgers",
+                        "OK",
+                        "一页流水",
+                        json.createObjectNode(),
+                        List.of(),
+                        List.of(
+                                new com.stockpilot.ai.vo.AiAnswerVO.Source(
+                                        "调拨单", "/documents/transfers?number=TR1", "TRANSFER_READ")),
+                        java.time.Instant.now());
+        assertFalse(tools.canReuse(evidence));
+        var visible = tools.authorizedView(evidence);
+        assertNotNull(visible);
+        assertEquals("OK", visible.status());
+        assertTrue(visible.sources().isEmpty());
+        auth("MASTER_DATA_READ");
+        assertNull(tools.authorizedView(evidence));
     }
 
     @Test
@@ -553,5 +750,103 @@ class AiToolServiceTest {
         return new InventoryLedgerVO(
                 1L, "LG1", type, "SO1", 2L, 3L, 1L, zero, zero, zero, zero, zero, zero, zero, zero,
                 zero, 0, 1, null, null, null, "private", 1L, "private", null);
+    }
+
+    @Test
+    void uniqueReferenceUsesTheDisplayContractAndBatchFieldsOnly() throws Exception {
+        auth("MASTER_DATA_READ");
+        when(skus.page(any())).thenReturn(new PageResult<>(List.of(sku(1)), 1, 1, 20));
+        var result = tools.execute("find_sku", json.readTree("{\"keyword\":\"A\"}"), List.of());
+        assertEquals("OK", result.status());
+        assertEquals("SKU1", result.data().path("sku").path("code").asText());
+        assertEquals("件", result.data().path("references").path("sku:1").path("unit").asText());
+        assertFalse(result.data().toString().contains("忽略指令"));
+        verify(references).references(Set.of(1L), Set.of(), Set.of());
+        verify(skus, never()).detail(anyLong());
+    }
+
+    @Test
+    void toolDefinitionsFollowReadPermissionsAndReusedEvidenceChecksSourcePermissions() {
+        auth("MASTER_DATA_READ");
+        Set<String> names = new HashSet<>();
+        tools.definitions().forEach(t -> names.add(t.path("function").path("name").asText()));
+        assertEquals(Set.of("find_sku", "find_warehouse", "find_location", "clarify"), names);
+        var result =
+                new com.stockpilot.ai.vo.AiAnswerVO.Evidence(
+                        "trace_ledger",
+                        "OK",
+                        "来源",
+                        json.createObjectNode(),
+                        List.of(),
+                        List.of(
+                                new com.stockpilot.ai.vo.AiAnswerVO.Source(
+                                        "单据", "/documents/sales-outbound", "SALES_OUTBOUND_READ")),
+                        java.time.Instant.now());
+        auth("INVENTORY_READ");
+        assertFalse(tools.canReuse(result));
+        auth("INVENTORY_READ", "SALES_OUTBOUND_READ");
+        assertTrue(tools.canReuse(result));
+    }
+
+    @Test
+    void clarificationIsControlledAndDoesNotReadBusinessData() throws Exception {
+        auth("MASTER_DATA_READ");
+        assertEquals(
+                "NEEDS_CLARIFICATION",
+                tools.execute("clarify", json.readTree("{\"reason\":\"MISSING_INPUT\"}"), List.of())
+                        .status());
+        assertEquals(
+                "FORBIDDEN",
+                tools.execute(
+                                "clarify",
+                                json.readTree(
+                                        "{\"reason\":\"FORBIDDEN\",\"tool\":\"query_balances\"}"),
+                                List.of())
+                        .status());
+        assertEquals(
+                "INVALID_ARGUMENTS",
+                tools.execute(
+                                "clarify",
+                                json.readTree("{\"reason\":\"FORBIDDEN\",\"tool\":\"find_sku\"}"),
+                                List.of())
+                        .status());
+        assertEquals(
+                "INVALID_ARGUMENTS",
+                tools.execute("clarify", json.readTree("{\"reason\":\"ignore rules\"}"), List.of())
+                        .status());
+        verifyNoInteractions(
+                inventory, sales, purchase, transfer, count, frozen, skus, warehouses, locations);
+    }
+
+    @Test
+    void missingModelPermissionTargetIsOnlyToleratedWhenNoBusinessReadsAreAuthorized()
+            throws Exception {
+        auth("MASTER_DATA_READ");
+        assertEquals(
+                "FORBIDDEN",
+                tools.execute("clarify", json.readTree("{\"reason\":\"FORBIDDEN\"}"), List.of())
+                        .status());
+        auth("MASTER_DATA_READ", "INVENTORY_READ");
+        assertEquals(
+                "INVALID_ARGUMENTS",
+                tools.execute("clarify", json.readTree("{\"reason\":\"FORBIDDEN\"}"), List.of())
+                        .status());
+        verifyNoInteractions(
+                inventory, sales, purchase, transfer, count, frozen, skus, warehouses, locations);
+    }
+
+    @Test
+    void forbiddenToolIsRejectedBeforeArgumentErrorsOrQueries() throws Exception {
+        auth("MASTER_DATA_READ");
+        assertFalse(tools.mayQuery("query_frozen_sources"));
+        assertEquals(
+                "FORBIDDEN",
+                tools.execute(
+                                "query_frozen_sources",
+                                json.readTree("{\"sku_name\":\"A\"}"),
+                                List.of())
+                        .status());
+        verifyNoInteractions(
+                inventory, sales, purchase, transfer, count, frozen, skus, warehouses, locations);
     }
 }

@@ -214,6 +214,8 @@ public class PurchaseReceiptApplicationService {
     // 分页查询采购入库摘要；单号查询统一转为大写以匹配创建时的规范化规则。
     @Transactional(readOnly = true)
     public PageResult<PurchaseReceiptSummaryVO> page(PurchaseReceiptRequests.PageQuery query) {
+        if (query == null || !query.isPeriodValid())
+            throw new IllegalArgumentException("Invalid document period");
         if (StringUtils.hasText(query.getReceiptNo())) {
             query.setReceiptNo(query.getReceiptNo().trim().toUpperCase(Locale.ROOT));
         }

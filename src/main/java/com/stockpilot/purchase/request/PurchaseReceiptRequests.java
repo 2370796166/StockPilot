@@ -37,7 +37,7 @@ public final class PurchaseReceiptRequests {
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 
-    public static final class PageQuery {
+    public static final class PageQuery extends com.stockpilot.shared.query.DocumentDateRangeQuery {
         @Min(1)
         private long page = 1;
 
@@ -49,6 +49,15 @@ public final class PurchaseReceiptRequests {
         private String receiptNo;
 
         @Positive private Long warehouseId;
+        private com.stockpilot.purchase.domain.PurchaseReceiptStatus status;
+
+        public com.stockpilot.purchase.domain.PurchaseReceiptStatus getStatus() {
+            return status;
+        }
+
+        public void setStatus(com.stockpilot.purchase.domain.PurchaseReceiptStatus value) {
+            status = value;
+        }
 
         public long getPage() {
             return page;

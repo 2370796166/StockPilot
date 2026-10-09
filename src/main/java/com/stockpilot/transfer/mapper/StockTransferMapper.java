@@ -70,7 +70,15 @@ public interface StockTransferMapper {
        <if test="q.sourceWarehouseId != null">AND source_warehouse_id=#{q.sourceWarehouseId}</if>
        <if test="q.targetWarehouseId != null">AND target_warehouse_id=#{q.targetWarehouseId}</if>
        <if test="q.status != null">AND status=#{q.status}</if>
-      </where> ORDER BY id DESC</script>
+      <if test="q.unfinished">AND status NOT IN ('COMPLETED','CANCELLED')</if>
+            <if test="q.startDate != null">
+                <choose><when test="q.dateField.name() == 'COMPLETED'">
+                    AND completed_at &gt;= #{q.startDate} AND completed_at &lt; #{q.endExclusive}
+                </when><otherwise>
+                    AND created_at &gt;= #{q.startDate} AND created_at &lt; #{q.endExclusive}
+                </otherwise></choose>
+            </if>
+            </where> ORDER BY id DESC</script>
       """)
     IPage<StockTransferEntity> selectPage(
             Page<StockTransferEntity> page, @Param("q") StockTransferRequests.PageQuery q);

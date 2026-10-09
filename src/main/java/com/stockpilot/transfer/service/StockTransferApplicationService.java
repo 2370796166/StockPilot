@@ -285,6 +285,8 @@ public class StockTransferApplicationService {
     // 分页查询调拨摘要，支持按规范化后的调拨单号和业务状态筛选。
     @Transactional(readOnly = true)
     public PageResult<StockTransferSummaryVO> page(StockTransferRequests.PageQuery q) {
+        if (q == null || !q.isPeriodValid())
+            throw new IllegalArgumentException("Invalid document period");
         if (StringUtils.hasText(q.getTransferNo()))
             q.setTransferNo(q.getTransferNo().trim().toUpperCase(Locale.ROOT));
         IPage<StockTransferEntity> p = transfers.selectPage(Page.of(q.getPage(), q.getSize()), q);

@@ -19,6 +19,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class InventoryQueryApplicationService {
     @Transactional(readOnly = true, timeout = 10)
+    public PageResult<com.stockpilot.inventory.vo.InventoryDocumentMovementVO> periodDocuments(
+            com.stockpilot.inventory.request.InventoryPeriodQuery query, long page, long size) {
+        if (query == null) throw new IllegalArgumentException("Missing inventory period");
+        com.stockpilot.inventory.request.InventoryDimensionQuery.validatePage(page, size);
+        var result = ledgers.selectPeriodDocuments(Page.of(page, size), query);
+        return new PageResult<>(
+                result.getRecords(), result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
+    @Transactional(readOnly = true, timeout = 10)
     public com.stockpilot.inventory.vo.InventoryPeriodSummaryVO periodSummary(
             com.stockpilot.inventory.request.InventoryPeriodQuery query) {
         if (query == null) throw new IllegalArgumentException("Missing inventory period");

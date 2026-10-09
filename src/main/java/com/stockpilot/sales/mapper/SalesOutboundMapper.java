@@ -11,6 +11,23 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface SalesOutboundMapper {
+    @Select(
+            """
+        <script>SELECT o.outbound_no AS business_no, o.status, SUM(l.quantity) AS quantity
+        FROM sales_outbound_order o JOIN sales_outbound_line l ON l.outbound_id = o.id
+        WHERE l.sku_id = #{query.skuId} AND l.warehouse_id = #{query.warehouseId}
+        <if test="query.locationId != null">AND l.location_id = #{query.locationId}</if>
+        <choose>
+          <when test="status == 'UNFINISHED'">AND o.status IN ('DRAFT','RESERVED','APPROVED')</when>
+          <otherwise>AND o.status = #{status}</otherwise>
+        </choose>
+        GROUP BY o.id, o.outbound_no, o.status ORDER BY o.id DESC</script>
+        """)
+    IPage<com.stockpilot.sales.vo.SalesInventoryOrderVO> selectInventoryOrders(
+            Page<com.stockpilot.sales.vo.SalesInventoryOrderVO> page,
+            @Param("query") com.stockpilot.inventory.request.InventoryDimensionQuery query,
+            @Param("status") String status);
+
     String FROZEN_SCOPE =
             """
         FROM sales_outbound_order o JOIN sales_outbound_line l ON l.outbound_id = o.id
@@ -83,6 +100,14 @@ public interface SalesOutboundMapper {
                 <if test="query.status != null">
                     AND status = #{query.status}
                 </if>
+            <if test="query.unfinished">AND status NOT IN ('COMPLETED','CANCELLED')</if>
+            <if test="query.startDate != null">
+                <choose><when test="query.dateField.name() == 'COMPLETED'">
+                    AND completed_at &gt;= #{query.startDate} AND completed_at &lt; #{query.endExclusive}
+                </when><otherwise>
+                    AND created_at &gt;= #{query.startDate} AND created_at &lt; #{query.endExclusive}
+                </otherwise></choose>
+            </if>
             </where>
             ORDER BY id DESC
             </script>

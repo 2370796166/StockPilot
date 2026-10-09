@@ -53,20 +53,25 @@ const statuses: Record<string, string> = {
 async function send(candidate?: Candidate) {
   if (loading.value || !question.value.trim() || question.value.length > 1000) return
   if (candidate && submittedQuestion.value !== question.value.trim()) return
+  if (candidate && !response.value?.continuationToken) {
+    error.value = '所选查询已失效，请重新发送问题。'
+    return
+  }
   if (!candidate) selections.value = []
   else
     selections.value = [
-      ...selections.value.filter((s) => s.kind !== candidate.kind),
+      ...selections.value.filter((s) => s.kind !== candidate.kind || s.keyword !== candidate.keyword),
       { kind: candidate.kind, keyword: candidate.keyword, id: candidate.id },
     ]
   submittedQuestion.value = question.value.trim()
+  const continuationToken = candidate ? (response.value?.continuationToken ?? undefined) : undefined
   loading.value = true
   error.value = ''
-  response.value = null
+  if (!candidate) response.value = null
   const controller = new AbortController()
   pending = controller
   try {
-    const result = await askAssistant(submittedQuestion.value, selections.value, controller.signal)
+    const result = await askAssistant(submittedQuestion.value, selections.value, controller.signal, continuationToken)
     if (alive && !controller.signal.aborted) response.value = result
   } catch (cause) {
     if (alive && !controller.signal.aborted) {

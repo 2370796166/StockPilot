@@ -8,7 +8,13 @@ import ts from 'typescript'
 function view(askAssistant) {
   return mount('modules/ai/AiAssistantView.vue', {}, { '@/modules/ai/api': { askAssistant } })
 }
-const answer = (status = 'OK') => ({ status, answer: '可核对下方结果', results: [], queriedAt: 'now' })
+const answer = (status = 'OK') => ({
+  status,
+  answer: '可核对下方结果',
+  results: [],
+  queriedAt: 'now',
+  continuationToken: status === 'NEEDS_SELECTION' ? 'signed-query-plan' : null,
+})
 test('assistant prevents duplicate sends and rejects blank or oversized input', async () => {
   const pending = deferred(),
     calls = []
@@ -50,6 +56,58 @@ test('candidate selection retains original question and accumulates choices', as
   assert.equal(calls[3].selections.length, 0)
   component.unmount()
 })
+test('same-kind choices retain distinct keywords and replace only the selected condition', async () => {
+  const calls = [],
+    component = view(async (question, selections) => {
+      calls.push(JSON.parse(JSON.stringify(selections)))
+      return answer('NEEDS_SELECTION')
+    })
+  component.state.question = '比较A和B的库存'
+  await component.state.send()
+  await component.state.send({ kind: 'sku', keyword: 'A', id: 1 })
+  await component.state.send({ kind: 'sku', keyword: 'B', id: 2 })
+  assert.deepEqual(calls[2], [
+    { kind: 'sku', keyword: 'A', id: 1 },
+    { kind: 'sku', keyword: 'B', id: 2 },
+  ])
+  await component.state.send({ kind: 'sku', keyword: 'A', id: 3 })
+  assert.deepEqual(calls[3], [
+    { kind: 'sku', keyword: 'B', id: 2 },
+    { kind: 'sku', keyword: 'A', id: 3 },
+  ])
+  component.unmount()
+})
+
+test('failed or cancelled candidate continuation retains evidence and permits retry', async () => {
+  for (const failure of ['network', 'cancel']) {
+    const calls = [],
+      component = view((question, selections, signal, continuationToken) => {
+        calls.push({ selections: JSON.parse(JSON.stringify(selections)), continuationToken })
+        if (calls.length === 1) return Promise.resolve(answer('NEEDS_SELECTION'))
+        if (calls.length === 2) {
+          if (failure === 'network') return Promise.reject(new Error('network'))
+          return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('cancel'))))
+        }
+        return Promise.resolve(answer())
+      })
+    component.state.question = 'A的库存'
+    await component.state.send()
+    const previous = component.state.response
+    const candidate = { kind: 'sku', keyword: 'A', id: 1 }
+    const request = component.state.send(candidate)
+    if (failure === 'cancel') component.state.cancel()
+    await request
+    assert.equal(component.state.response, previous)
+    assert.equal(component.state.loading, false)
+    await component.state.send(candidate)
+    assert.equal(calls[2].continuationToken, 'signed-query-plan')
+    assert.deepEqual(calls[2].selections, [{ kind: 'sku', keyword: 'A', id: 1 }])
+    assert.equal(component.state.response.status, 'OK')
+    assert.equal(component.state.error, '')
+    component.unmount()
+  }
+})
+
 test('disabled, configuration, permission, empty data and failures retain distinct states', async () => {
   for (const status of ['DISABLED', 'CONFIGURATION_ERROR', 'FORBIDDEN', 'NO_DATA', 'QUERY_FAILED', 'MODEL_TIMEOUT']) {
     const component = view(async () => answer(status))
@@ -206,4 +264,44 @@ test('source date filters reject malformed, unpaired, reversed and overlong rang
     assert.equal(filters(query).endDate, undefined)
   }
   assert.equal(filters('?startDate=2026-01-01&endDate=2026-04-02').endDate, '2026-04-02')
+})
+
+test('candidate requests carry the signed continuation and stale plans never restart model parsing', async () => {
+  const calls = []
+  const component = view(async (question, selections, signal, continuationToken) => {
+    calls.push({ question, selections: [...selections], continuationToken })
+    return { ...answer('NEEDS_SELECTION'), continuationToken: `plan-${calls.length}` }
+  })
+  component.state.question = 'A在一号仓的库存'
+  await component.state.send()
+  await component.state.send({ kind: 'sku', keyword: 'A', id: 1, code: 'S1', name: 'A' })
+  assert.equal(calls[0].continuationToken, undefined)
+  assert.equal(calls[1].continuationToken, 'plan-1')
+  await component.state.send({ kind: 'warehouse', keyword: '一号仓', id: 2, code: 'W1', name: '一号仓' })
+  assert.equal(calls[2].continuationToken, 'plan-2')
+  assert.equal(calls[2].selections.length, 2)
+  component.state.response.continuationToken = null
+  await component.state.send({ kind: 'warehouse', keyword: '一号仓', id: 2, code: 'W1', name: '一号仓' })
+  assert.equal(calls.length, 3)
+  assert.match(component.state.error, /已失效/)
+  component.unmount()
+})
+
+test('unique SKU, warehouse and location results expose the fields used by the evidence template', async () => {
+  for (const kind of ['sku', 'warehouse', 'location']) {
+    const data = { [kind]: { kind, id: 1, code: 'CODE1', name: '真实资料' }, references: { 'sku:1': { unit: '件' } } }
+    const component = mount(
+      'modules/ai/AiEvidence.vue',
+      {
+        evidence: { tool: `find_${kind}`, data, message: '已找到唯一资料', candidates: [], sources: [] },
+      },
+      { '@/modules/auth/store': { useAuthStore: () => ({ can: () => true }) } },
+    )
+    assert.equal(component.props.evidence.data[kind].name, '真实资料')
+    if (kind === 'sku') {
+      assert.equal(component.state.skuContext.code, 'CODE1')
+      assert.equal(component.state.skuUnit, '件')
+    }
+    component.unmount()
+  }
 })

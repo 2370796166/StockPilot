@@ -14,6 +14,9 @@ import com.stockpilot.masterdata.vo.LocationVO;
 import com.stockpilot.shared.api.PageResult;
 import com.stockpilot.shared.exception.BusinessException;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -112,8 +115,21 @@ public class WarehouseLocationApplicationService {
                         .orderByDesc(WarehouseLocationEntity::getId);
         Page<WarehouseLocationEntity> p =
                 warehouseLocationMapper.selectPage(Page.of(q.getPage(), q.getSize()), w);
+        var warehouseIds =
+                p.getRecords().stream()
+                        .map(WarehouseLocationEntity::getWarehouseId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList();
+        Map<Long, WarehouseEntity> warehouses =
+                warehouseIds.isEmpty()
+                        ? Map.of()
+                        : warehouseMapper.selectBatchIds(warehouseIds).stream()
+                                .collect(Collectors.toMap(WarehouseEntity::getId, value -> value));
         return new PageResult<>(
-                p.getRecords().stream().map(this::toVO).toList(),
+                p.getRecords().stream()
+                        .map(value -> toVO(value, warehouses.get(value.getWarehouseId())))
+                        .toList(),
                 p.getTotal(),
                 p.getCurrent(),
                 p.getSize());
@@ -134,7 +150,10 @@ public class WarehouseLocationApplicationService {
     }
 
     private LocationVO toVO(WarehouseLocationEntity e) {
-        WarehouseEntity w = warehouseMapper.selectById(e.getWarehouseId());
+        return toVO(e, warehouseMapper.selectById(e.getWarehouseId()));
+    }
+
+    private LocationVO toVO(WarehouseLocationEntity e, WarehouseEntity w) {
         return new LocationVO(
                 e.getId(),
                 e.getWarehouseId(),

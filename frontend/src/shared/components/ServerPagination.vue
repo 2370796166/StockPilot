@@ -17,6 +17,7 @@ function changeSize(value: number) {
   <div class="pagination-wrap">
     <el-pagination
       background
+      :pager-count="5"
       layout="total, sizes, prev, pager, next, jumper"
       :current-page="page"
       :page-size="size"

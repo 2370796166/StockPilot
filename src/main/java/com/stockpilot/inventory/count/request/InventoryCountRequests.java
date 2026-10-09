@@ -31,7 +31,7 @@ public final class InventoryCountRequests {
     public record RecordResults(
             @NotNull @Min(0) Integer version, @NotEmpty List<@Valid Result> results) {}
 
-    public static final class PageQuery {
+    public static final class PageQuery extends com.stockpilot.shared.query.DocumentDateRangeQuery {
         @Min(1)
         private long page = 1;
 

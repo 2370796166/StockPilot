@@ -101,6 +101,58 @@ class AiModelAdapterTest {
         assertEquals("回答", result.path("content").asText());
         assertEquals("fake-model", json.readTree(received).path("model").asText());
         assertFalse(received.contains("test-only-key"));
+        assertEquals("none", json.readTree(received).path("tool_choice").asText());
+        assertEquals(
+                "json_object",
+                json.readTree(received).path("response_format").path("type").asText());
+        assertFalse(json.readTree(received).has("tools"));
+    }
+
+    @Test
+    void usageAndErrorCategoriesAreObservableWithoutCredentialsOrBodies() throws Exception {
+        var logger =
+                (ch.qos.logback.classic.Logger)
+                        org.slf4j.LoggerFactory.getLogger(AiModelAdapter.class);
+        var appender =
+                new ch.qos.logback.core.read.ListAppender<
+                        ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            body =
+                    "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\",\"content\":\"回答\"}}],\"usage\":{\"prompt_tokens\":777,\"completion_tokens\":21}}";
+            var result =
+                    adapter(Duration.ofSeconds(2))
+                            .complete(json.createArrayNode(), json.createArrayNode());
+            assertEquals(777, result.path("_usage").path("promptTokens").asInt());
+            assertEquals(21, result.path("_usage").path("completionTokens").asInt());
+            body = "private upstream body test-only-key";
+            for (int code : new int[] {401, 402, 429, 503}) {
+                status = code;
+                assertEquals(
+                        "MODEL_ERROR",
+                        assertThrows(
+                                        AiModelAdapter.ModelFailure.class,
+                                        () ->
+                                                adapter(Duration.ofSeconds(2))
+                                                        .complete(
+                                                                json.createArrayNode(),
+                                                                json.createArrayNode()))
+                                .status());
+            }
+            String output =
+                    appender.list.stream()
+                            .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                            .reduce("", (a, b) -> a + b);
+            for (String category :
+                    new String[] {"AUTHENTICATION", "BALANCE", "RATE_LIMIT", "UPSTREAM"})
+                assertTrue(output.contains(category));
+            assertFalse(output.contains("test-only-key"));
+            assertFalse(output.contains("private upstream body"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
@@ -198,7 +250,9 @@ class AiModelAdapterTest {
         adapter.complete(json.createArrayNode(), tools);
         var request = json.readTree(received);
         assertEquals(tools, request.path("tools"));
-        assertEquals("auto", request.path("tool_choice").asText());
+        assertEquals(
+                provider == AiProvider.DEEPSEEK ? "required" : "auto",
+                request.path("tool_choice").asText());
         assertEquals(1200, request.path("max_tokens").asInt());
         assertEquals("fake-model", request.path("model").asText());
         switch (provider) {

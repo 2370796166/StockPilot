@@ -58,6 +58,8 @@ public class InventoryCountApplicationService {
     // 分页查询盘点单摘要，用于查看当前盘点所处的业务阶段。
     @Transactional(readOnly = true)
     public PageResult<InventoryCountSummaryVO> page(InventoryCountRequests.PageQuery q) {
+        if (q == null || !q.isPeriodValid())
+            throw new IllegalArgumentException("Invalid document period");
         var p = counts.selectPage(new Page<>(q.getPage(), q.getSize()), q);
         return new PageResult<>(
                 p.getRecords().stream().map(InventoryCountViewAssembler::summary).toList(),

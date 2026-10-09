@@ -256,7 +256,7 @@ const LineTableColumn = TableColumn<DocumentLine>
       <div>
         <p class="eyebrow">业务单据</p>
         <h1>{{ title }}</h1>
-        <p>可用操作严格依据后端状态与当前权限</p>
+        <p>查看单据进度，按当前状态完成下一步业务操作</p>
       </div>
       <PermissionGate :authority="permissions.write"
         ><el-button

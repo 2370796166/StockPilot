@@ -118,7 +118,7 @@ const ElTableColumn = TableColumn<CountSummary>
       <div>
         <p class="eyebrow">库存中心</p>
         <h1>库存盘点</h1>
-        <p>静态维度锁、实盘录入、审核与差异调整</p>
+        <p>建立盘点快照，录入实盘数量并审核调整差异</p>
       </div>
       <PermissionGate authority="INVENTORY_COUNT_WRITE">
         <el-button

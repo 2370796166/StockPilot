@@ -46,17 +46,25 @@ async function submit() {
 <template>
   <main class="login-page">
     <section class="login-intro">
-      <div class="login-logo">
-        <el-icon><Box /></el-icon>
+      <div class="login-brand">
+        <div class="login-logo">
+          <el-icon><Box /></el-icon>
+        </div>
+        <strong>StockPilot</strong><span>智能仓储与库存管理</span>
       </div>
-      <p class="eyebrow">STOCKPILOT</p>
       <h1>让每一笔库存变化<br />都有据可循</h1>
       <p>面向采购、仓储和销售协作的库存管理平台。</p>
-      <div class="intro-rule"></div>
-      <small>库存数据以服务端业务规则为最终保障</small>
+      <div class="login-capabilities">
+        <div><span>采购入库</span><span>销售出库</span></div>
+        <div><span>多仓调拨</span><span>库存盘点</span></div>
+      </div>
+      <small class="login-intro-foot">从业务单据到库存流水，全程可追溯</small>
     </section>
     <section class="login-panel">
       <div class="login-card">
+        <div class="mobile-login-brand">
+          <el-icon><Box /></el-icon><strong>StockPilot</strong>
+        </div>
         <p class="eyebrow">管理后台</p>
         <h2>欢迎回来</h2>
         <p class="muted">使用 StockPilot 账号登录</p>
@@ -94,6 +102,7 @@ async function submit() {
             >登录</el-button
           >
         </el-form>
+        <p class="login-help">如需开通账号或调整权限，请联系管理员。</p>
       </div>
     </section>
   </main>

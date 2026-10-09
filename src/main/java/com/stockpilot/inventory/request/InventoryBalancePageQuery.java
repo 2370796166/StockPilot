@@ -1,8 +1,11 @@
 package com.stockpilot.inventory.request;
 
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
+import java.math.BigDecimal;
 
 public class InventoryBalancePageQuery {
     @Min(1)
@@ -15,6 +18,18 @@ public class InventoryBalancePageQuery {
     @Positive private Long warehouseId;
     @Positive private Long locationId;
     @Positive private Long skuId;
+
+    @DecimalMin("0")
+    @Digits(integer = 15, fraction = 4)
+    private BigDecimal belowAvailable;
+
+    public BigDecimal getBelowAvailable() {
+        return belowAvailable;
+    }
+
+    public void setBelowAvailable(BigDecimal value) {
+        belowAvailable = value;
+    }
 
     public long getPage() {
         return page;

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { parse, compileScript } from '@vue/compiler-sfc'
 import ts from 'typescript'
 import * as vue from 'vue'
+import { webcrypto } from 'node:crypto'
 
 const require = createRequire(import.meta.url)
 const renderer = vue.createRenderer({
@@ -61,6 +62,7 @@ export function mount(file, input = {}, mocks = {}) {
     setTimeout,
     clearTimeout,
     AbortController,
+    crypto: webcrypto,
   })
   const component = module.exports
   component.render = () => null

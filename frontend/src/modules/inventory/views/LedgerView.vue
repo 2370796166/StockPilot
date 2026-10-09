@@ -130,7 +130,7 @@ const ElTableColumn = TableColumn<InventoryLedger>
       <div>
         <p class="eyebrow">库存中心</p>
         <h1>库存流水</h1>
-        <p>追加式库存审计事实，不提供修改或删除操作</p>
+        <p>追踪库存数量变化，核对业务来源与操作记录</p>
       </div>
     </div>
     <el-card

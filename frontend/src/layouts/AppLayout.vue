@@ -27,6 +27,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Box,
+  ArrowDown,
   Checked,
   CollectionTag,
   Expand,
@@ -38,6 +39,7 @@ import {
   Switch,
   Tickets,
   TrendCharts,
+  ChatDotRound,
   User,
   UserFilled,
 } from '@element-plus/icons-vue'
@@ -84,7 +86,7 @@ const masterDataItems = computed(() =>
 const businessItems = computed(
   () =>
     [
-      { path: '/ai-assistant', label: 'AI 仓储助手', icon: Tickets },
+      { path: '/ai-assistant', label: 'AI 仓储助手', icon: ChatDotRound },
       auth.can('PURCHASE_RECEIPT_READ') && { path: '/documents/purchase-receipts', label: '采购入库单', icon: Tickets },
       auth.can('SALES_OUTBOUND_READ') && { path: '/documents/sales-outbound', label: '销售出库单', icon: Tickets },
       auth.can('TRANSFER_READ') && { path: '/documents/transfers', label: '库存调拨', icon: Switch },
@@ -105,6 +107,14 @@ async function logout() {
   auth.logout()
   await router.replace('/login')
 }
+const navigationGroups = computed(() => [
+  { label: '仓储作业', items: businessItems.value },
+  { label: '基础资料', items: masterDataItems.value },
+  { label: '系统管理', items: securityItems.value },
+])
+const currentGroup = computed(
+  () => navigationGroups.value.find((group) => group.items.some((item) => item.path === route.path))?.label ?? '工作台',
+)
 </script>
 
 <template>
@@ -118,7 +128,7 @@ async function logout() {
     <el-aside
       v-show="!isMobile || mobileOpen"
       id="main-navigation"
-      :width="menuCollapsed ? '72px' : '232px'"
+      :width="menuCollapsed ? '76px' : '240px'"
       class="sidebar"
       @keydown.esc="mobileOpen = false"
     >
@@ -126,7 +136,9 @@ async function logout() {
         class="brand"
         :class="{ compact: menuCollapsed }"
       >
-        <div class="brand-mark">S</div>
+        <div class="brand-mark">
+          <el-icon><Box /></el-icon>
+        </div>
         <div
           v-if="!menuCollapsed"
           class="brand-copy"
@@ -145,26 +157,31 @@ async function logout() {
         <el-menu-item index="/dashboard"
           ><el-icon><HomeFilled /></el-icon><template #title>首页总览</template></el-menu-item
         >
-        <el-menu-item
-          v-for="item in masterDataItems"
-          :key="item.path"
-          :index="item.path"
+        <template
+          v-for="group in navigationGroups"
+          :key="group.label"
         >
-          <el-icon><component :is="item.icon" /></el-icon><template #title>{{ item.label }}</template>
-        </el-menu-item>
-        <el-menu-item
-          v-for="item in businessItems"
-          :key="item.path"
-          :index="item.path"
-          ><el-icon><component :is="item.icon" /></el-icon><template #title>{{ item.label }}</template></el-menu-item
-        >
-        <el-menu-item
-          v-for="item in securityItems"
-          :key="item.path"
-          :index="item.path"
-          ><el-icon><component :is="item.icon" /></el-icon><template #title>{{ item.label }}</template></el-menu-item
-        >
+          <div
+            v-if="group.items.length && !menuCollapsed"
+            class="menu-group-label"
+          >
+            {{ group.label }}
+          </div>
+          <el-menu-item
+            v-for="item in group.items"
+            :key="item.path"
+            :index="item.path"
+          >
+            <el-icon><component :is="item.icon" /></el-icon><template #title>{{ item.label }}</template>
+          </el-menu-item>
+        </template>
       </el-menu>
+      <div
+        v-if="!menuCollapsed"
+        class="sidebar-caption"
+      >
+        <el-icon><Box /></el-icon><span>库存有序，业务有据</span>
+      </div>
     </el-aside>
     <el-container>
       <el-header class="topbar">
@@ -178,7 +195,16 @@ async function logout() {
         >
           <el-icon size="20"><Fold v-if="menuExpanded" /><Expand v-else /></el-icon>
         </el-button>
-        <div class="topbar-title">{{ route.meta.title }}</div>
+        <nav
+          class="topbar-title"
+          aria-label="当前位置"
+        >
+          <RouterLink to="/dashboard">工作台</RouterLink>
+          <template v-if="route.path !== '/dashboard'"
+            ><span class="breadcrumb-divider">/</span><span class="breadcrumb-group">{{ currentGroup }}</span
+            ><span class="breadcrumb-divider">/</span><strong>{{ route.meta.title }}</strong></template
+          >
+        </nav>
         <el-dropdown trigger="click">
           <button
             class="user-menu"
@@ -191,6 +217,7 @@ async function logout() {
               ><strong>{{ auth.user?.displayName || auth.user?.username }}</strong
               ><small>{{ auth.user?.username }}</small></span
             >
+            <el-icon class="user-chevron"><ArrowDown /></el-icon>
           </button>
           <template #dropdown
             ><el-dropdown-menu

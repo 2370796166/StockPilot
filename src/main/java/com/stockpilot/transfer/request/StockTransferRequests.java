@@ -32,7 +32,7 @@ public final class StockTransferRequests {
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 
-    public static final class PageQuery {
+    public static final class PageQuery extends com.stockpilot.shared.query.DocumentDateRangeQuery {
         @Min(1)
         private long page = 1;
 

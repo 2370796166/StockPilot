@@ -125,6 +125,9 @@ public interface InventoryBalanceMapper {
                 <if test="query.skuId != null">
                     AND sku_id = #{query.skuId}
                 </if>
+                <if test="query.belowAvailable != null">
+                    AND available_quantity &lt; #{query.belowAvailable}
+                </if>
             </where>
             ORDER BY id DESC
             </script>

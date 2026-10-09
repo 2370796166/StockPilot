@@ -56,6 +56,15 @@ public interface PurchaseReceiptMapper {
                 <if test="query.warehouseId != null">
                     AND warehouse_id = #{query.warehouseId}
                 </if>
+            <if test="query.status != null">AND status = #{query.status}</if>
+            <if test="query.unfinished">AND status NOT IN ('COMPLETED')</if>
+            <if test="query.startDate != null">
+                <choose><when test="query.dateField.name() == 'COMPLETED'">
+                    AND completed_at &gt;= #{query.startDate} AND completed_at &lt; #{query.endExclusive}
+                </when><otherwise>
+                    AND created_at &gt;= #{query.startDate} AND created_at &lt; #{query.endExclusive}
+                </otherwise></choose>
+            </if>
             </where>
             ORDER BY id DESC
             </script>

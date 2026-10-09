@@ -44,6 +44,15 @@ public class SecurityConfig {
                                         .requestMatchers(HttpMethod.POST, "/api/ai/questions")
                                         .authenticated()
                                         .requestMatchers(
+                                                "/api/ai/sessions",
+                                                "/api/ai/sessions/*",
+                                                "/api/ai/sessions/*/tasks",
+                                                "/api/ai/tasks/*",
+                                                "/api/ai/tasks/*/input",
+                                                "/api/ai/tasks/*/cancel",
+                                                "/api/ai/tasks/*/retry")
+                                        .authenticated()
+                                        .requestMatchers(
                                                 HttpMethod.PUT,
                                                 "/api/security/users/*/roles",
                                                 "/api/security/roles/*/permissions")

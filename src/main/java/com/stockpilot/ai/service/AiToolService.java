@@ -27,25 +27,64 @@ import org.springframework.stereotype.Service;
 @Service
 public class AiToolService {
     private static final Map<String, List<String>> FIELDS =
-            Map.of(
-                    "find_sku",
-                    List.of("keyword"),
-                    "find_warehouse",
-                    List.of("keyword"),
-                    "find_location",
-                    List.of("keyword", "warehouse"),
-                    "query_balances",
-                    List.of("sku", "warehouse", "location", "page", "size"),
-                    "query_ledgers",
-                    List.of("sku", "warehouse", "location", "businessNo", "page", "size"),
-                    "get_document",
-                    List.of("documentType", "number"),
-                    "trace_ledger",
-                    List.of("ledgerNo"),
-                    "summarize_movements",
-                    List.of("sku", "warehouse", "location", "startDate", "endDate"),
-                    "query_frozen_sources",
-                    List.of("sku", "warehouse", "location", "page", "size"));
+            new HashMap<>(
+                    Map.of(
+                            "clarify",
+                            List.of("reason", "tool"),
+                            "find_sku",
+                            List.of("keyword"),
+                            "find_warehouse",
+                            List.of("keyword"),
+                            "find_location",
+                            List.of("keyword", "warehouse"),
+                            "query_balances",
+                            List.of("sku", "warehouse", "location", "page", "size"),
+                            "query_ledgers",
+                            List.of(
+                                    "sku",
+                                    "warehouse",
+                                    "location",
+                                    "businessNo",
+                                    "businessType",
+                                    "startDate",
+                                    "endDate",
+                                    "page",
+                                    "size"),
+                            "get_document",
+                            List.of("documentType", "number"),
+                            "trace_ledger",
+                            List.of("ledgerNo"),
+                            "summarize_movements",
+                            List.of("sku", "warehouse", "location", "startDate", "endDate"),
+                            "query_frozen_sources",
+                            List.of("sku", "warehouse", "location", "page", "size")));
+
+    static {
+        FIELDS.put(
+                "query_sales_orders",
+                List.of("sku", "warehouse", "location", "status", "page", "size"));
+        FIELDS.put(
+                "summarize_documents",
+                List.of("sku", "warehouse", "location", "startDate", "endDate", "page", "size"));
+        FIELDS.put("compare_inventory", List.of("sku", "warehouse", "otherWarehouse"));
+        FIELDS.put(
+                "list_inventory",
+                List.of("sku", "warehouse", "location", "belowAvailable", "page", "size"));
+        FIELDS.put(
+                "list_documents",
+                List.of(
+                        "documentType",
+                        "warehouse",
+                        "otherWarehouse",
+                        "status",
+                        "number",
+                        "startDate",
+                        "endDate",
+                        "dateField",
+                        "page",
+                        "size"));
+    }
+
     private final ObjectMapper json;
     private final SkuApplicationService skuService;
     private final WarehouseApplicationService warehouseService;
@@ -56,6 +95,7 @@ public class AiToolService {
     private final StockTransferApplicationService stockTransferService;
     private final InventoryCountApplicationService inventoryCountService;
     private final AiFrozenInventoryService aiFrozenInventoryService;
+    private final MasterDataReferenceQueryService masterDataReferenceQueryService;
 
     public AiToolService(
             ObjectMapper json,
@@ -67,7 +107,8 @@ public class AiToolService {
             PurchaseReceiptApplicationService purchaseReceiptService,
             StockTransferApplicationService stockTransferService,
             InventoryCountApplicationService inventoryCountService,
-            AiFrozenInventoryService aiFrozenInventoryService) {
+            AiFrozenInventoryService aiFrozenInventoryService,
+            MasterDataReferenceQueryService masterDataReferenceQueryService) {
         this.json = json.copy().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
         this.skuService = skuService;
         this.warehouseService = warehouseService;
@@ -78,74 +119,239 @@ public class AiToolService {
         this.stockTransferService = stockTransferService;
         this.inventoryCountService = inventoryCountService;
         this.aiFrozenInventoryService = aiFrozenInventoryService;
+        this.masterDataReferenceQueryService = masterDataReferenceQueryService;
+    }
+
+    public boolean isKnownTool(String name) {
+        return FIELDS.containsKey(name);
+    }
+
+    public boolean mayQuery(String name) {
+        return FIELDS.containsKey(name) && available(name);
+    }
+
+    /** Map a model's code back to the user's actual name, never choose a same-name candidate. */
+    public String mentionedName(String kind, String code, String question) {
+        if (!can("MASTER_DATA_READ") || !Set.of("sku", "warehouse").contains(kind)) return null;
+        return masterDataReferenceQueryService
+                .exactCode(kind, code, null)
+                .map(com.stockpilot.masterdata.vo.ReferenceDataVO::name)
+                .filter(
+                        name ->
+                                name != null
+                                        && !name.isBlank()
+                                        && question.toLowerCase(Locale.ROOT)
+                                                .contains(name.toLowerCase(Locale.ROOT)))
+                .orElse(null);
+    }
+
+    public boolean canReuse(Evidence evidence) {
+        return available(evidence.tool())
+                && (!evidence.data().has("references") || can("MASTER_DATA_READ"))
+                && evidence.sources().stream().allMatch(source -> can(source.authority()));
+    }
+
+    /** Inventory facts remain readable when their linked document page is not authorized. */
+    public Evidence authorizedView(Evidence evidence) {
+        if (!available(evidence.tool())
+                || evidence.data().has("references") && !can("MASTER_DATA_READ")) return null;
+        if (Set.of("get_document", "trace_ledger", "list_documents").contains(evidence.tool())
+                && evidence.data().has("documentType")
+                && !can(permission(evidence.data().path("documentType").asText()))) return null;
+        return new Evidence(
+                evidence.tool(),
+                evidence.status(),
+                evidence.message(),
+                evidence.data(),
+                evidence.candidates(),
+                evidence.sources().stream().filter(source -> can(source.authority())).toList(),
+                evidence.queriedAt(),
+                evidence.evidenceId());
     }
 
     public ArrayNode definitions() {
         ArrayNode tools = json.createArrayNode();
-        FIELDS.forEach(
-                (name, fields) -> {
-                    ObjectNode params =
-                            json.createObjectNode()
-                                    .put("type", "object")
-                                    .put("additionalProperties", false);
-                    ObjectNode props = params.putObject("properties");
-                    for (String field : fields) {
-                        ObjectNode prop = props.putObject(field);
-                        if (field.equals("page") || field.equals("size")) {
-                            prop.put("type", "integer")
-                                    .put("minimum", 1)
-                                    .put("maximum", field.equals("size") ? 20 : 1000);
-                        } else {
-                            prop.put("type", "string").put("maxLength", 100);
-                            prop.put(
-                                    "description",
-                                    switch (field) {
-                                        case "documentType" -> "PURCHASE, SALES, TRANSFER or COUNT";
-                                        case "startDate", "endDate" ->
-                                                "YYYY-MM-DD，包含起止日期；Asia/Shanghai时区，最多九十二个自然日";
-                                        case "sku", "warehouse", "location", "keyword" ->
-                                                "用户提供的编码或名称。不得编造ID。";
-                                        default -> "用户提供的准确单号";
-                                    });
-                        }
-                    }
-                    List<String> required =
-                            switch (name) {
-                                case "query_balances" -> List.of("sku");
-                                case "query_ledgers" -> List.of("sku", "warehouse");
-                                case "summarize_movements" ->
-                                        List.of("sku", "warehouse", "startDate", "endDate");
-                                case "query_frozen_sources" -> List.of("sku", "warehouse");
-                                case "get_document" -> List.of("documentType", "number");
-                                case "trace_ledger" -> List.of("ledgerNo");
-                                case "find_location" -> List.of("keyword", "warehouse");
-                                default -> List.of("keyword");
-                            };
-                    params.set("required", json.valueToTree(required));
-                    tools.addObject()
-                            .put("type", "function")
-                            .putObject("function")
-                            .put("name", name)
-                            .put(
-                                    "description",
+        FIELDS.keySet().stream()
+                .sorted(
+                        Comparator.<String>comparingInt(
+                                        name ->
+                                                name.equals("clarify")
+                                                        ? 2
+                                                        : name.startsWith("find_") ? 1 : 0)
+                                .thenComparing(Comparator.naturalOrder()))
+                .forEach(
+                        name -> {
+                            List<String> fields = FIELDS.get(name);
+                            if (!available(name)) return;
+                            ObjectNode params =
+                                    json.createObjectNode()
+                                            .put("type", "object")
+                                            .put("additionalProperties", false);
+                            ObjectNode props = params.putObject("properties");
+                            for (String field : fields) {
+                                ObjectNode prop = props.putObject(field);
+                                if (field.equals("page") || field.equals("size")) {
+                                    prop.put("type", "integer")
+                                            .put("minimum", 1)
+                                            .put("maximum", field.equals("size") ? 20 : 1000);
+                                } else {
+                                    prop.put("type", "string").put("maxLength", 100);
+                                    if (field.equals("reason"))
+                                        prop.putArray("enum")
+                                                .add("MISSING_INPUT")
+                                                .add("FORBIDDEN")
+                                                .add("OUT_OF_SCOPE");
+                                    if (field.equals("tool")) {
+                                        ArrayNode allowed = prop.putArray("enum");
+                                        allowed.add("NONE");
+                                        FIELDS.keySet().stream()
+                                                .filter(
+                                                        tool ->
+                                                                !tool.equals("clarify")
+                                                                        && !available(tool))
+                                                .sorted()
+                                                .forEach(allowed::add);
+                                    }
+                                    prop.put(
+                                            "description",
+                                            switch (field) {
+                                                case "reason" ->
+                                                        "缺少输入、没有所需读取权限或完全超出只读范围；不接受自由文本解释。";
+                                                case "tool" ->
+                                                        "FORBIDDEN时指定所需但未提供的白名单工具名称，后端会校验当前权限。其他原因填NONE。";
+                                                case "documentType" ->
+                                                        "PURCHASE, SALES, TRANSFER or COUNT";
+                                                case "startDate", "endDate" ->
+                                                        "YYYY-MM-DD，包含起止日期；Asia/Shanghai时区，最多九十二个自然日";
+                                                case "belowAvailable" ->
+                                                        "可用库存严格小于该十进制阈值，按仓库/库位/商品逐记录筛选；必须由用户明确提供，不是安全库存预测。";
+                                                case "status" ->
+                                                        "准确业务状态或UNFINISHED；未完成排除完成/调整和取消。可不填写以查询所有状态。";
+                                                case "dateField" ->
+                                                        "CREATED为创建日期（默认），COMPLETED为完成/收货/盘点调整日期；不得混淆创建与实际完成。";
+                                                case "sku",
+                                                                "warehouse",
+                                                                "location",
+                                                                "keyword",
+                                                                "otherWarehouse" ->
+                                                        "用户提供的编码或名称。不得编造ID。";
+                                                default -> "用户提供的准确单号";
+                                            });
+                                }
+                            }
+                            List<String> required =
                                     switch (name) {
-                                        case "summarize_movements" ->
-                                                "指定商品、仓库、可选库位及日期区间的完整流水差量汇总；按业务动作区分销售、调拨、盘点。不是期初期末余额，不证明完整历史。";
-                                        case "query_frozen_sources" ->
-                                                "查询当前有效销售/调拨冻结来源及全范围总量；两类明细各自分页。核对当前余额冻结总量，不证明逐库位一致。";
-                                        default ->
-                                                name
-                                                        + "：只读查询；名称歧义必须返回候选并停止。query_balances汇总覆盖全部匹配库位，明细分页。query_ledgers为一页流水，不能推断完整历史。";
-                                    })
-                            .set("parameters", params);
-                });
+                                        case "clarify" -> List.of("reason", "tool");
+                                        case "query_balances" -> List.of("sku");
+                                        case "list_inventory" -> List.of();
+                                        case "list_documents" -> List.of("documentType");
+                                        case "query_ledgers" -> List.of("sku", "warehouse");
+                                        case "summarize_movements", "summarize_documents" ->
+                                                List.of("sku", "warehouse", "startDate", "endDate");
+                                        case "query_frozen_sources", "query_sales_orders" ->
+                                                List.of("sku", "warehouse");
+                                        case "compare_inventory" ->
+                                                List.of("sku", "warehouse", "otherWarehouse");
+                                        case "get_document" -> List.of("documentType", "number");
+                                        case "trace_ledger" -> List.of("ledgerNo");
+                                        case "find_location" -> List.of("keyword", "warehouse");
+                                        default -> List.of("keyword");
+                                    };
+                            params.set("required", json.valueToTree(required));
+                            tools.addObject()
+                                    .put("type", "function")
+                                    .putObject("function")
+                                    .put("name", name)
+                                    .put(
+                                            "description",
+                                            switch (name) {
+                                                case "clarify" ->
+                                                        "仅当缺少用户查询所必需的商品/仓库/单号，或所需业务工具未提供时使用。用户已给出名称时必须调用业务工具验证，即使名称含测试或不存在；不得以数据是否存在为缺参理由。FORBIDDEN须提供未授权的业务工具名tool。OUT_OF_SCOPE仅用于整个问题不含可支持的读取需求。";
+                                                case "summarize_movements" ->
+                                                        "指定商品、仓库、可选库位及日期区间的完整流水差量汇总；按业务动作区分销售、调拨、盘点。不是期初期末余额，不证明完整历史。";
+                                                case "query_frozen_sources" ->
+                                                        "查询当前有效销售/调拨冻结来源及全范围总量；两类明细各自分页。核对当前余额冻结总量，不证明逐库位一致。";
+                                                case "query_balances" ->
+                                                        "按用户给出的商品名称/编码直接查单仓或多仓库存，工具内部解析名称并返回候选；无需先find。汇总覆盖匹配库位，明细分页。";
+                                                case "list_inventory" ->
+                                                        "查询全部或指定仓库的库存列表；商品可选，不要求单个商品。可按用户明确的belowAvailable阈值筛选。每条为一个商品/库位，列表分页，不能跨商品累加数量。";
+                                                case "list_documents" ->
+                                                        "查询采购PURCHASE、销售SALES、调拨TRANSFER、盘点COUNT单据列表。只有类型必填；仓库、状态、日期可选；UNFINISHED查未完成。调拨warehouse为源仓，otherWarehouse为目标仓。日期默认创建，实际入库/出库/收货用COMPLETED。";
+                                                case "query_ledgers" ->
+                                                        "直接查询指定商品、仓库的一页库存流水；不代表完整历史或历史总量。";
+                                                case "get_document" -> "按准确单号查询采购、销售、调拨或盘点单据状态及明细。";
+                                                case "trace_ledger" -> "按准确流水号追溯业务来源单据。";
+                                                case "query_sales_orders" ->
+                                                        "商品、仓库对应的销售单，默认UNFINISHED包含草稿、已冻结和已审核；分页不等于全部单据。";
+                                                case "summarize_documents" ->
+                                                        "区间内按单据和业务动作汇总流水，用于准确单号追溯，单据分组列表分页。";
+                                                case "compare_inventory" ->
+                                                        "同一快照比较两个仓库的余额与冻结来源总量，由后端计算差量。";
+                                                default ->
+                                                        "仅用于单独查找商品/仓库/库位资料。其他业务工具内部解析名称，无需预先调用此工具。";
+                                            })
+                                    .set("parameters", params);
+                        });
         return tools;
     }
 
     public Evidence execute(String name, JsonNode args, List<Selection> selections) {
         try {
+            if (FIELDS.containsKey(name) && !available(name))
+                throw new ToolStop("FORBIDDEN", "当前账号缺少所需业务读取权限，请联系管理员");
+            if (name.equals("clarify")
+                    && args != null
+                    && args.isObject()
+                    && args.has("tool")
+                    && (args.path("tool").isNull()
+                            || args.path("tool").isTextual()
+                                    && args.path("tool").asText().isBlank())) {
+                args = args.deepCopy();
+                ((ObjectNode) args).put("tool", "NONE");
+            }
             validate(name, args);
             return switch (name) {
+                case "clarify" -> {
+                    String reason = text(args, "reason");
+                    if ("FORBIDDEN".equals(reason)) {
+                        String target = text(args, "tool");
+                        boolean noBusinessReads =
+                                FIELDS.keySet().stream()
+                                        .filter(
+                                                tool ->
+                                                        !tool.equals("clarify")
+                                                                && !tool.startsWith("find_"))
+                                        .noneMatch(AiToolService::available);
+                        if ((target == null || !FIELDS.containsKey(target)) && noBusinessReads)
+                            yield result(
+                                    name,
+                                    "FORBIDDEN",
+                                    "当前账号没有库存或单据读取权限，请联系管理员",
+                                    json.createObjectNode(),
+                                    List.of(),
+                                    List.of());
+                        if (target == null || !FIELDS.containsKey(target) || available(target))
+                            throw new ToolStop("INVALID_ARGUMENTS", "无法确认所需业务读取权限");
+                        yield result(
+                                name,
+                                "FORBIDDEN",
+                                "当前账号缺少所需业务读取权限，请联系管理员",
+                                json.createObjectNode(),
+                                List.of(),
+                                List.of());
+                    }
+                    if (!"MISSING_INPUT".equals(reason) && !"OUT_OF_SCOPE".equals(reason))
+                        throw new ToolStop("INVALID_ARGUMENTS", "澄清原因无效");
+                    yield result(
+                            name,
+                            "NEEDS_CLARIFICATION",
+                            "OUT_OF_SCOPE".equals(reason)
+                                    ? "本助手仅支持只读查询，请提供商品、仓库或准确业务单号、流水号"
+                                    : "请补充商品和仓库名称，或准确业务单号、流水号",
+                            json.createObjectNode(),
+                            List.of(),
+                            List.of());
+                }
                 case "find_sku", "find_warehouse", "find_location" -> {
                     String kind = name.substring(5);
                     Long warehouse =
@@ -159,20 +365,21 @@ public class AiToolService {
                                     : null;
                     Candidate candidate =
                             resolve(kind, text(args, "keyword"), warehouse, selections);
-                    yield result(
-                            name,
-                            "OK",
-                            "已找到唯一资料",
-                            json.valueToTree(candidate),
-                            List.of(),
-                            List.of());
+                    ObjectNode candidateData = json.createObjectNode();
+                    candidateData.set(kind, json.valueToTree(candidate));
+                    enrich(candidateData);
+                    yield result(name, "OK", "已找到唯一资料", candidateData, List.of(), List.of());
                 }
                 case "query_balances", "query_ledgers" -> inventory(name, args, selections);
+                case "list_inventory" -> inventoryList(args, selections);
+                case "list_documents" -> documentList(args, selections);
                 case "summarize_movements", "query_frozen_sources" ->
                         analysis(name, args, selections);
                 case "get_document" ->
                         document(name, text(args, "documentType"), number(args, "number"));
                 case "trace_ledger" -> trace(name, number(args, "ledgerNo"));
+                case "query_sales_orders", "summarize_documents", "compare_inventory" ->
+                        extended(name, args, selections);
                 default -> throw new ToolStop("INVALID_TOOL", "工具不在只读白名单中");
             };
         } catch (ToolStop e) {
@@ -234,6 +441,13 @@ public class AiToolService {
         require("MASTER_DATA_READ");
         if (keyword == null)
             throw new ToolStop("NEEDS_CLARIFICATION", "请提供" + kindLabel(kind) + "名称或编码");
+        if (!kind.equals("location") || warehouseId != null) {
+            var exact = masterDataReferenceQueryService.exactCode(kind, keyword, warehouseId);
+            if (exact.isPresent()) {
+                var v = exact.get();
+                return new Candidate(kind, keyword, v.id(), v.code(), v.name());
+            }
+        }
         PageQuery query =
                 kind.equals("sku")
                         ? new SkuPageQuery()
@@ -277,6 +491,11 @@ public class AiToolService {
                                     () -> new ToolStop("INVALID_ARGUMENTS", "所选候选已失效，请重新缩小查询条件"));
                 }
             }
+        // Codes are unique business identifiers. An exact code must not become ambiguous merely
+        // because a fuzzy keyword query also matched longer codes; same-name matches still pause.
+        var exactCode =
+                candidates.stream().filter(c -> c.code().equalsIgnoreCase(keyword)).toList();
+        if (exactCode.size() == 1) return exactCode.get(0);
         if (total != 1)
             throw new ToolStop(
                     "NEEDS_SELECTION",
@@ -350,6 +569,22 @@ public class AiToolService {
             q.setBusinessNo(args.has("businessNo") ? number(args, "businessNo") : null);
             q.setPage(page);
             q.setSize(size);
+            if (args.has("startDate") || args.has("endDate")) {
+                q.setStartDate(date(args, "startDate"));
+                q.setEndDate(date(args, "endDate"));
+                if (!q.isPeriodValid()) throw new ToolStop("INVALID_ARGUMENTS", "日期范围无效");
+                data.putObject("period")
+                        .put("startDate", q.getStartDate().toString())
+                        .put("endDate", q.getEndDate().toString())
+                        .put("timezone", "Asia/Shanghai");
+            }
+            if (text(args, "businessType") != null) {
+                try {
+                    q.setBusinessType(InventoryBusinessType.valueOf(text(args, "businessType")));
+                } catch (IllegalArgumentException e) {
+                    throw new ToolStop("INVALID_ARGUMENTS", "业务动作无效");
+                }
+            }
             var records = inventoryQueryService.pageLedgers(q);
             ObjectNode ledgerPage =
                     pageData(
@@ -402,6 +637,221 @@ public class AiToolService {
                 data,
                 List.of(),
                 sources);
+    }
+
+    private Evidence inventoryList(JsonNode args, List<Selection> selections) {
+        require("INVENTORY_READ");
+        var data = json.createObjectNode();
+        var query = new InventoryBalancePageQuery();
+        if (text(args, "warehouse") != null) {
+            var warehouse = resolve("warehouse", text(args, "warehouse"), null, selections);
+            query.setWarehouseId(warehouse.id());
+            data.set("warehouse", json.valueToTree(warehouse));
+        }
+        if (text(args, "sku") != null) {
+            var sku = resolve("sku", text(args, "sku"), null, selections);
+            query.setSkuId(sku.id());
+            data.set("sku", json.valueToTree(sku));
+        }
+        if (text(args, "location") != null) {
+            var location =
+                    resolve("location", text(args, "location"), query.getWarehouseId(), selections);
+            query.setLocationId(location.id());
+            data.set("location", json.valueToTree(location));
+        }
+        if (args.has("belowAvailable")) {
+            try {
+                var threshold = new BigDecimal(text(args, "belowAvailable"));
+                if (threshold.signum() < 0
+                        || threshold.scale() > 4
+                        || threshold.precision() - threshold.scale() > 15)
+                    throw new NumberFormatException();
+                query.setBelowAvailable(threshold);
+                data.put("belowAvailable", threshold.toPlainString());
+            } catch (NumberFormatException failure) {
+                throw new ToolStop("INVALID_ARGUMENTS", "数量阈值必须为合法的非负十进制数，最多四位小数");
+            }
+        }
+        query.setPage(args.path("page").asLong(1));
+        query.setSize(args.path("size").asLong(20));
+        var page = inventoryQueryService.pageBalances(query);
+        data.set(
+                "inventory",
+                pageData(
+                        page,
+                        "warehouseId",
+                        "locationId",
+                        "skuId",
+                        "actualQuantity",
+                        "availableQuantity",
+                        "frozenQuantity",
+                        "updatedAt"));
+        enrich(data);
+        return result(
+                "list_inventory",
+                page.total() == 0 ? "NO_DATA" : "OK",
+                "库存列表按商品和库位显示，匹配总数由MySQL筛选；当前页不等于全部，不同商品数量不能相加。阈值筛选不等于安全库存预警或需求预测。",
+                data,
+                List.of(),
+                List.of(
+                        new Source(
+                                "查看库存列表",
+                                "/inventory/balances"
+                                        + (query.getWarehouseId() == null
+                                                ? ""
+                                                : "?warehouseId=" + query.getWarehouseId()),
+                                "INVENTORY_READ")));
+    }
+
+    private Evidence documentList(JsonNode args, List<Selection> selections) {
+        String type = text(args, "documentType");
+        if (type == null) throw new ToolStop("NEEDS_CLARIFICATION", "请指定采购、销售、调拨或盘点单据类型");
+        require(permission(type));
+        var data = json.createObjectNode().put("documentType", type);
+        Long warehouseId = null, targetId = null;
+        if (text(args, "warehouse") != null) {
+            var warehouse = resolve("warehouse", text(args, "warehouse"), null, selections);
+            warehouseId = warehouse.id();
+            data.set("warehouse", json.valueToTree(warehouse));
+        }
+        if (text(args, "otherWarehouse") != null) {
+            if (!type.equals("TRANSFER")) throw new ToolStop("INVALID_ARGUMENTS", "只有调拨列表支持目标仓库条件");
+            var warehouse = resolve("warehouse", text(args, "otherWarehouse"), null, selections);
+            targetId = warehouse.id();
+            data.set("otherWarehouse", json.valueToTree(warehouse));
+        }
+        String status = text(args, "status"), number = text(args, "number");
+        boolean unfinished = "UNFINISHED".equals(status);
+        long page = args.path("page").asLong(1), size = args.path("size").asLong(20);
+        PageResult<?> records;
+        try {
+            records =
+                    switch (type) {
+                        case "PURCHASE" -> {
+                            var query =
+                                    new com.stockpilot.purchase.request.PurchaseReceiptRequests
+                                            .PageQuery();
+                            query.setWarehouseId(warehouseId);
+                            query.setReceiptNo(number);
+                            query.setPage(page);
+                            query.setSize(size);
+                            if (status != null && !unfinished)
+                                query.setStatus(
+                                        com.stockpilot.purchase.domain.PurchaseReceiptStatus
+                                                .valueOf(status));
+                            configurePeriod(query, args, data, unfinished);
+                            yield purchaseReceiptService.page(query);
+                        }
+                        case "SALES" -> {
+                            var query =
+                                    new com.stockpilot.sales.request.SalesOutboundRequests
+                                            .PageQuery();
+                            query.setWarehouseId(warehouseId);
+                            query.setOutboundNo(number);
+                            query.setPage(page);
+                            query.setSize(size);
+                            if (status != null && !unfinished)
+                                query.setStatus(
+                                        com.stockpilot.sales.request.SalesOutboundRequests
+                                                .SalesOutboundStatusFilter.valueOf(status));
+                            configurePeriod(query, args, data, unfinished);
+                            yield salesOutboundService.page(query);
+                        }
+                        case "TRANSFER" -> {
+                            var query =
+                                    new com.stockpilot.transfer.request.StockTransferRequests
+                                            .PageQuery();
+                            query.setSourceWarehouseId(warehouseId);
+                            query.setTargetWarehouseId(targetId);
+                            query.setTransferNo(number);
+                            query.setPage(page);
+                            query.setSize(size);
+                            if (status != null && !unfinished)
+                                query.setStatus(
+                                        com.stockpilot.transfer.domain.StockTransferStatus.valueOf(
+                                                status));
+                            configurePeriod(query, args, data, unfinished);
+                            yield stockTransferService.page(query);
+                        }
+                        case "COUNT" -> {
+                            var query =
+                                    new com.stockpilot.inventory.count.request
+                                            .InventoryCountRequests.PageQuery();
+                            query.setWarehouseId(warehouseId);
+                            query.setCountNo(number);
+                            query.setPage(page);
+                            query.setSize(size);
+                            if (status != null && !unfinished)
+                                query.setStatus(
+                                        com.stockpilot.inventory.count.domain.InventoryCountStatus
+                                                .valueOf(status));
+                            configurePeriod(query, args, data, unfinished);
+                            yield inventoryCountService.page(query);
+                        }
+                        default -> throw new ToolStop("INVALID_ARGUMENTS", "单据类型无效");
+                    };
+        } catch (IllegalArgumentException failure) {
+            throw new ToolStop("INVALID_ARGUMENTS", "单据状态或日期条件无效");
+        }
+        if (status != null) data.put("statusFilter", status);
+        ObjectNode projected =
+                pageData(
+                        records,
+                        "receiptNo",
+                        "outboundNo",
+                        "transferNo",
+                        "countNo",
+                        "warehouseId",
+                        "sourceWarehouseId",
+                        "targetWarehouseId",
+                        "status",
+                        "createdAt",
+                        "completedAt",
+                        "adjustedAt");
+        var sources = new ArrayList<Source>();
+        for (JsonNode row : projected.path("records")) {
+            var record = (ObjectNode) row;
+            String field =
+                    switch (type) {
+                        case "PURCHASE" -> "receiptNo";
+                        case "SALES" -> "outboundNo";
+                        case "TRANSFER" -> "transferNo";
+                        default -> "countNo";
+                    };
+            record.put("businessNo", record.path(field).asText());
+            record.remove(field);
+            sources.add(documentSource(type, record.path("businessNo").asText()));
+        }
+        data.set("documents", projected);
+        enrich(data);
+        return result(
+                "list_documents",
+                records.total() == 0 ? "NO_DATA" : "OK",
+                "单据列表按条件在MySQL筛选；当前页不等于全部。未完成排除已完成/已调整和已取消。日期口径以dateField为准，单据状态不替代库存流水。",
+                data,
+                List.of(),
+                sources);
+    }
+
+    private void configurePeriod(
+            com.stockpilot.shared.query.DocumentDateRangeQuery query,
+            JsonNode args,
+            ObjectNode data,
+            boolean unfinished) {
+        query.setUnfinished(unfinished);
+        query.setDateField(
+                com.stockpilot.shared.query.DocumentDateRangeQuery.DateField.valueOf(
+                        args.path("dateField").asText("CREATED")));
+        data.put("dateField", query.getDateField().name());
+        if (args.has("startDate") || args.has("endDate")) {
+            query.setStartDate(date(args, "startDate"));
+            query.setEndDate(date(args, "endDate"));
+            if (!query.isPeriodValid()) throw new IllegalArgumentException();
+            data.putObject("period")
+                    .put("startDate", query.getStartDate().toString())
+                    .put("endDate", query.getEndDate().toString())
+                    .put("timezone", "Asia/Shanghai");
+        }
     }
 
     private Evidence analysis(String name, JsonNode args, List<Selection> selections) {
@@ -525,6 +975,19 @@ public class AiToolService {
                                 "frozenQuantity",
                                 snapshot.balance().get().frozenQuantity().toPlainString())
                         .put("differenceQuantity", snapshot.differenceQuantity().toPlainString());
+                totals.put(
+                                "actualQuantity",
+                                snapshot.balance().get().actualQuantity().toPlainString())
+                        .put(
+                                "availableQuantity",
+                                snapshot.balance().get().availableQuantity().toPlainString())
+                        .put(
+                                "unavailableQuantity",
+                                snapshot.balance()
+                                        .get()
+                                        .actualQuantity()
+                                        .subtract(snapshot.balance().get().availableQuantity())
+                                        .toPlainString());
                 data.put(
                         "totalCheck",
                         snapshot.differenceQuantity().signum() == 0
@@ -549,6 +1012,131 @@ public class AiToolService {
             for (var row : snapshot.transfer().sources().records())
                 sources.add(documentSource("TRANSFER", row.businessNo()));
             sources.add(new Source("查看当前库存余额", "/inventory/balances" + filters, "INVENTORY_READ"));
+        }
+        enrich(data);
+        return result(name, status, message, data, List.of(), sources);
+    }
+
+    private Evidence extended(String name, JsonNode args, List<Selection> selections) {
+        Candidate sku = resolve("sku", text(args, "sku"), null, selections);
+        Candidate warehouse = resolve("warehouse", text(args, "warehouse"), null, selections);
+        Candidate location =
+                text(args, "location") == null
+                        ? null
+                        : resolve("location", text(args, "location"), warehouse.id(), selections);
+        var dimension =
+                new InventoryDimensionQuery(
+                        sku.id(), warehouse.id(), location == null ? null : location.id());
+        ObjectNode data = json.createObjectNode();
+        data.set("sku", json.valueToTree(sku));
+        data.set("warehouse", json.valueToTree(warehouse));
+        if (location != null) data.set("location", json.valueToTree(location));
+        List<Source> sources = new ArrayList<>();
+        String status = "OK";
+        String message;
+        long page = args.path("page").asLong(1), size = args.path("size").asLong(20);
+        if (name.equals("query_sales_orders")) {
+            String filter = args.path("status").asText("UNFINISHED");
+            if (!Set.of("UNFINISHED", "DRAFT", "RESERVED", "APPROVED", "COMPLETED", "CANCELLED")
+                    .contains(filter)) throw new ToolStop("INVALID_ARGUMENTS", "销售状态无效");
+            var records = salesOutboundService.inventoryOrders(dimension, filter, page, size);
+            data.put("statusFilter", filter);
+            data.set("salesOrders", pageData(records, "businessNo", "status", "quantity"));
+            for (var row : records.records())
+                sources.add(documentSource("SALES", row.businessNo()));
+            if (records.total() == 0) status = "NO_DATA";
+            message = "按商品和库存范围查询销售单，未完成包含草稿、已冻结和已审核；草稿尚未占用库存。仅显示当前页，数量是匹配范围的单据行数量，不是当前冻结总量。";
+        } else if (name.equals("summarize_documents")) {
+            var query =
+                    new InventoryPeriodQuery(
+                            dimension, date(args, "startDate"), date(args, "endDate"));
+            var records = inventoryQueryService.periodDocuments(query, page, size);
+            data.putObject("period")
+                    .put("startDate", query.startDate().toString())
+                    .put("endDate", query.endDate().toString())
+                    .put("timezone", "Asia/Shanghai");
+            data.set(
+                    "documentMovements",
+                    pageData(
+                            records,
+                            "businessNo",
+                            "businessType",
+                            "ledgerCount",
+                            "changeActualQuantity",
+                            "changeAvailableQuantity",
+                            "changeFrozenQuantity"));
+            for (var row : records.records())
+                if (documentType(row.businessType()) != null)
+                    sources.add(documentSource(documentType(row.businessType()), row.businessNo()));
+            if (records.total() == 0) status = "NO_DATA";
+            message = "区间内每个单据/动作的差量覆盖全部匹配流水，分组列表分页；当前页不能代替完整区间总量，单据当前状态不代表当时状态。";
+        } else {
+            Candidate other = resolve("warehouse", text(args, "otherWarehouse"), null, selections);
+            if (warehouse.id().equals(other.id()))
+                throw new ToolStop("INVALID_ARGUMENTS", "比较需要两个不同仓库");
+            data.set("otherWarehouse", json.valueToTree(other));
+            var left = aiFrozenInventoryService.query(dimension, 1, 1);
+            var right =
+                    aiFrozenInventoryService.query(
+                            new InventoryDimensionQuery(sku.id(), other.id(), null), 1, 1);
+            data.put("sameSnapshot", true);
+            var rows = data.putArray("comparison");
+            for (var pair : List.of(Map.entry(warehouse, left), Map.entry(other, right))) {
+                var row = rows.addObject().put("warehouseId", pair.getKey().id());
+                row.put("balanceExists", pair.getValue().balance().isPresent());
+                pair.getValue()
+                        .balance()
+                        .ifPresent(
+                                balance ->
+                                        row.setAll(
+                                                project(
+                                                        balance,
+                                                        "actualQuantity",
+                                                        "availableQuantity",
+                                                        "frozenQuantity")));
+                row.put("salesQuantity", pair.getValue().sales().totalQuantity().toPlainString());
+                row.put(
+                        "transferQuantity",
+                        pair.getValue().transfer().totalQuantity().toPlainString());
+                row.put("sourceQuantity", pair.getValue().sourceQuantity().toPlainString());
+                if (pair.getValue().differenceQuantity() != null) {
+                    row.put(
+                            "sourceDifferenceQuantity",
+                            pair.getValue().differenceQuantity().toPlainString());
+                    row.put(
+                            "totalCheck",
+                            pair.getValue().differenceQuantity().signum() == 0
+                                    ? "TOTAL_MATCH"
+                                    : "TOTAL_MISMATCH");
+                } else row.put("totalCheck", "BALANCE_MISSING");
+            }
+            if (left.balance().isPresent() && right.balance().isPresent()) {
+                var delta = data.putObject("difference").put("direction", "LEFT_MINUS_RIGHT");
+                delta.put(
+                        "actualQuantity",
+                        left.balance()
+                                .get()
+                                .actualQuantity()
+                                .subtract(right.balance().get().actualQuantity())
+                                .toPlainString());
+                delta.put(
+                        "availableQuantity",
+                        left.balance()
+                                .get()
+                                .availableQuantity()
+                                .subtract(right.balance().get().availableQuantity())
+                                .toPlainString());
+                delta.put(
+                        "frozenQuantity",
+                        left.balance()
+                                .get()
+                                .frozenQuantity()
+                                .subtract(right.balance().get().frozenQuantity())
+                                .toPlainString());
+            }
+            message = "同一快照比较两个仓库全部库位；差量为第一个仓库减第二个仓库。缺失余额不能视为零，不产生差量；冻结来源核对仅为范围总量。";
+            sources.add(
+                    new Source("查看库存", "/inventory/balances?skuId=" + sku.id(), "INVENTORY_READ"));
         }
         enrich(data);
         return result(name, status, message, data, List.of(), sources);
@@ -690,17 +1278,34 @@ public class AiToolService {
 
     private void enrich(JsonNode node) {
         if (!can("MASTER_DATA_READ")) return;
-        Map<String, JsonNode> references = new LinkedHashMap<>();
-        collectReferences(node, references);
-        ((ObjectNode) node).set("references", json.valueToTree(references));
+        Set<Long> skus = new LinkedHashSet<>(),
+                warehouses = new LinkedHashSet<>(),
+                locations = new LinkedHashSet<>();
+        collectReferences(node, skus, warehouses, locations);
+        require("MASTER_DATA_READ");
+        ((ObjectNode) node)
+                .set(
+                        "references",
+                        json.valueToTree(
+                                masterDataReferenceQueryService.references(
+                                        skus, warehouses, locations)));
     }
 
-    private void collectReferences(JsonNode node, Map<String, JsonNode> references) {
+    private void collectReferences(
+            JsonNode node, Set<Long> skus, Set<Long> warehouses, Set<Long> locations) {
         if (node.isArray()) {
-            node.forEach(child -> collectReferences(child, references));
+            node.forEach(child -> collectReferences(child, skus, warehouses, locations));
             return;
         }
         if (!node.isObject()) return;
+        if (node.path("id").isIntegralNumber()) {
+            switch (node.path("kind").asText()) {
+                case "sku" -> skus.add(node.path("id").asLong());
+                case "warehouse" -> warehouses.add(node.path("id").asLong());
+                case "location" -> locations.add(node.path("id").asLong());
+                default -> {}
+            }
+        }
         node.fields()
                 .forEachRemaining(
                         entry -> {
@@ -717,28 +1322,38 @@ public class AiToolService {
                                                             ? "location"
                                                             : null;
                             if (kind != null && value.isIntegralNumber()) {
-                                String key = kind + ":" + value.asLong();
-                                if (!references.containsKey(key)) {
-                                    require("MASTER_DATA_READ");
-                                    Object detail =
-                                            switch (kind) {
-                                                case "sku" -> skuService.detail(value.asLong());
-                                                case "warehouse" ->
-                                                        warehouseService.detail(value.asLong());
-                                                default -> locationService.detail(value.asLong());
-                                            };
-                                    references.put(
-                                            key,
-                                            project(
-                                                    detail,
-                                                    "id",
-                                                    "code",
-                                                    "name",
-                                                    "unit",
-                                                    "warehouseId"));
+                                switch (kind) {
+                                    case "sku" -> skus.add(value.asLong());
+                                    case "warehouse" -> warehouses.add(value.asLong());
+                                    default -> locations.add(value.asLong());
                                 }
-                            } else collectReferences(value, references);
+                            } else collectReferences(value, skus, warehouses, locations);
                         });
+    }
+
+    private static boolean available(String name) {
+        return switch (name) {
+            case "clarify" -> true;
+            case "find_sku", "find_warehouse", "find_location" -> can("MASTER_DATA_READ");
+            case "list_inventory",
+                            "query_balances",
+                            "query_ledgers",
+                            "summarize_movements",
+                            "summarize_documents" ->
+                    can("MASTER_DATA_READ") && can("INVENTORY_READ");
+            case "query_sales_orders" -> can("MASTER_DATA_READ") && can("SALES_OUTBOUND_READ");
+            case "query_frozen_sources", "compare_inventory" ->
+                    can("MASTER_DATA_READ")
+                            && can("INVENTORY_READ")
+                            && can("SALES_OUTBOUND_READ")
+                            && can("TRANSFER_READ");
+            case "trace_ledger" -> can("INVENTORY_READ");
+            default ->
+                    can("SALES_OUTBOUND_READ")
+                            || can("PURCHASE_RECEIPT_READ")
+                            || can("TRANSFER_READ")
+                            || can("INVENTORY_COUNT_READ");
+        };
     }
 
     private static String permission(String type) {

@@ -18,6 +18,7 @@ export interface QueryPage {
   records: Record<string, unknown>[]
 }
 export interface Evidence {
+  evidenceId?: string
   tool: string
   status: string
   message: string
@@ -44,9 +45,55 @@ export interface Evidence {
   }
 }
 export interface AiAnswer {
+  continuationToken?: string | null
   status: string
   answer: string
   results: Evidence[]
   queriedAt: string
 }
 export type Selection = Pick<Candidate, 'kind' | 'keyword' | 'id'>
+export interface AgentFact {
+  evidenceId: string
+  field: string
+  value: string
+}
+export interface AgentConclusion {
+  evidenceIds?: string[]
+  rule: string
+  text: string
+  facts: AgentFact[]
+  evidenceId: string
+  scope: Record<string, string>
+  queriedAt: string
+  coverage: string
+}
+export interface AgentAnswer {
+  conclusions: AgentConclusion[]
+  uncertainties: string[]
+  suggestions: string[]
+}
+export interface AgentTask {
+  steps?: { label: string; status: string; evidenceId?: string; at: string }[]
+  conditionSources?: Record<string, string>
+  id: string
+  sessionId: string
+  version: number
+  status: string
+  reason?: string
+  progress: string
+  question: string
+  results: Evidence[]
+  answer: AgentAnswer
+  previousResults?: Evidence[]
+  conditions: Record<string, string>
+  missingFields: string[]
+  updatedAt: string
+  modelCalls: number
+  toolCalls: number
+}
+export interface AgentSession {
+  history: { taskId: string; question: string; status: string; at: string }[]
+  id: string
+  context: Record<string, string>
+  expiresAt: string
+}

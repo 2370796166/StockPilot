@@ -134,7 +134,7 @@ const ElTableColumn = TableColumn<UserRecord>
       <div>
         <p class="eyebrow">系统管理</p>
         <h1>用户管理</h1>
-        <p>用户状态和角色授权由后端实时生效</p>
+        <p>管理用户账号、启停状态和角色授权</p>
       </div>
       <PermissionGate authority="SECURITY_USER_WRITE"
         ><el-button

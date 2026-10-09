@@ -2,6 +2,9 @@ server:
   port: ${SERVER_PORT:8085}
 
 spring:
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   config:
     import: "optional:file:./.env[.properties]"
   application:
@@ -64,6 +67,15 @@ stockpilot:
     timeout: ${AI_REQUEST_TIMEOUT:20s}
     total-timeout: ${AI_TOTAL_TIMEOUT:90s}
     max-tool-calls: ${AI_MAX_TOOL_CALLS:6}
+    agent:
+      max-rounds: ${AI_AGENT_MAX_ROUNDS:4}
+      max-tool-calls: ${AI_AGENT_MAX_TOOL_CALLS:12}
+      max-context-bytes: ${AI_AGENT_MAX_CONTEXT_BYTES:65536}
+      max-sessions: ${AI_AGENT_MAX_SESSIONS:100}
+      sessions-per-user: ${AI_AGENT_SESSIONS_PER_USER:2}
+      history-turns: ${AI_AGENT_HISTORY_TURNS:10}
+      session-ttl: ${AI_AGENT_SESSION_TTL:30m}
+      input-ttl: ${AI_AGENT_INPUT_TTL:5m}
   cache:
     enabled: ${CACHE_ENABLED:false}
     key-prefix: ${CACHE_KEY_PREFIX:stockpilot:v1}

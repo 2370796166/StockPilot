@@ -42,7 +42,15 @@ public interface InventoryCountMapper {
        <if test="q.countNo != null and q.countNo != ''">AND count_no LIKE CONCAT('%',#{q.countNo},'%')</if>
        <if test="q.warehouseId != null">AND warehouse_id=#{q.warehouseId}</if>
        <if test="q.status != null">AND status=#{q.status}</if>
-      </where> ORDER BY id DESC</script>
+      <if test="q.unfinished">AND status NOT IN ('ADJUSTED','CANCELLED')</if>
+            <if test="q.startDate != null">
+                <choose><when test="q.dateField.name() == 'COMPLETED'">
+                    AND adjusted_at &gt;= #{q.startDate} AND adjusted_at &lt; #{q.endExclusive}
+                </when><otherwise>
+                    AND created_at &gt;= #{q.startDate} AND created_at &lt; #{q.endExclusive}
+                </otherwise></choose>
+            </if>
+            </where> ORDER BY id DESC</script>
       """)
     IPage<InventoryCountEntity> selectPage(
             Page<InventoryCountEntity> page, @Param("q") InventoryCountRequests.PageQuery q);

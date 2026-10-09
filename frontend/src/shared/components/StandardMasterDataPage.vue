@@ -167,7 +167,7 @@ const ElTableColumn = TableColumn<MasterDataRecord>
       <div>
         <p class="eyebrow">基础资料</p>
         <h1>{{ title }}</h1>
-        <p>数据由 StockPilot 后端接口实时提供</p>
+        <p>维护{{ noun }}资料，支持按编码、名称和状态查找</p>
       </div>
       <PermissionGate authority="MASTER_DATA_WRITE"
         ><el-button

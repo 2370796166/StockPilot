@@ -55,8 +55,13 @@ onMounted(load)
       <div>
         <p class="eyebrow">库存中心</p>
         <h1>库存余额</h1>
-        <p>MySQL 权威库存，只读展示实际、可用与冻结数量</p>
+        <p>按仓库、库位与商品查询，查看当前库存分配情况</p>
       </div>
+    </div>
+    <div class="balance-guide">
+      <span><i class="quantity-key actual"></i>实际库存：仓库内持有</span
+      ><span><i class="quantity-key available"></i>可用库存：可继续分配</span
+      ><span><i class="quantity-key frozen"></i>冻结库存：已被单据占用</span>
     </div>
     <el-card
       shadow="never"
@@ -115,12 +120,16 @@ onMounted(load)
         ><el-table-column
           prop="actualQuantity"
           label="实际库存"
+          min-width="190"
           align="right" /><el-table-column
           prop="availableQuantity"
           label="可用库存"
+          class-name="available-quantity"
+          min-width="190"
           align="right" /><el-table-column
           prop="frozenQuantity"
           label="冻结库存"
+          min-width="190"
           align="right" /><el-table-column
           prop="updatedAt"
           label="更新时间"
@@ -133,3 +142,21 @@ onMounted(load)
     /></el-card>
   </div>
 </template>
+<style scoped>
+.balance-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  color: var(--sp-muted);
+  font-size: 12px;
+}
+.balance-guide span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+:deep(.available-quantity .cell) {
+  color: var(--sp-green-dark);
+  font-weight: 600;
+}
+</style>

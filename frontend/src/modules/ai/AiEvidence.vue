@@ -7,7 +7,7 @@ import 'element-plus/es/components/table-column/style/css'
 import type { Candidate, Evidence, QueryPage } from './types'
 import { computed } from 'vue'
 import { useAuthStore } from '@/modules/auth/store'
-const props = defineProps<{ evidence: Evidence }>()
+const props = defineProps<{ evidence: Evidence; readonly?: boolean }>()
 const emit = defineEmits<{ select: [candidate: Evidence['candidates'][number]] }>()
 const auth = useAuthStore()
 const skuContext = computed(() => props.evidence.data.sku as Candidate | undefined)
@@ -46,12 +46,18 @@ const labels: Record<string, string> = {
   snapshotAvailableQuantity: '快照可用',
   snapshotFrozenQuantity: '快照冻结',
   updatedAt: '更新时间',
+  createdAt: '创建时间',
+  completedAt: '完成时间',
+  adjustedAt: '调整时间',
   ledgerCount: '流水条数',
   documentType: '单据类型',
   status: '当前单据状态',
   reservedAt: '冻结时间',
   salesQuantity: '有效销售冻结量',
   transferQuantity: '有效调拨冻结量',
+  balanceExists: '是否存在库存余额',
+  sourceDifferenceQuantity: '冻结余额与来源总量差异',
+  totalCheck: '冻结范围总量核对',
   sourceQuantity: '有效单据占用总量',
 }
 const statusLabels: Record<string, string> = {
@@ -67,6 +73,7 @@ const statusLabels: Record<string, string> = {
   IN_TRANSIT: '在途',
 }
 const headings: Record<string, string> = {
+  clarify: '查询条件',
   query_balances: '库存查询',
   query_ledgers: '库存流水',
   summarize_movements: '时间段库存变化',
@@ -76,6 +83,11 @@ const headings: Record<string, string> = {
   find_sku: '商品查询',
   find_warehouse: '仓库查询',
   find_location: '库位查询',
+  query_sales_orders: '商品对应销售单',
+  summarize_documents: '区间单据变化',
+  compare_inventory: '多仓库存比较',
+  list_inventory: '库存列表',
+  list_documents: '业务单据列表',
 }
 const tables = computed(() => {
   const data = props.evidence.data
@@ -94,14 +106,32 @@ const tables = computed(() => {
   if (data.summary) pages.push({ title: '区间差量汇总（覆盖全部匹配流水）', rows: [data.summary] })
   if (data.movements) pages.push({ title: '按业务动作汇总', rows: data.movements })
   if (data.frozenTotals) pages.push({ title: '当前冻结总量核对（独立于分页）', rows: [data.frozenTotals] })
+  for (const [key, title] of [
+    ['salesOrders', '销售单（分页）'],
+    ['documentMovements', '单据与动作汇总（分页）'],
+    ['inventory', '商品与库位库存（分页）'],
+    ['documents', '业务单据（分页）'],
+  ] as const) {
+    const page = data[key] as QueryPage | undefined
+    if (page) pages.push({ title, page, rows: page.records })
+  }
+  if (Array.isArray(data.comparison))
+    pages.push({ title: '仓库比较（同一快照）', rows: data.comparison as Record<string, unknown>[] })
+  if (data.difference)
+    pages.push({ title: '数量差：第一个仓库减第二个仓库', rows: [data.difference as Record<string, unknown>] })
   return pages
 })
 function columns(rows: Record<string, unknown>[]) {
-  return Object.keys(rows[0] ?? {}).filter((key) => labels[key])
+  return [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => labels[key])
 }
 function display(row: Record<string, unknown>, key: string) {
   const value = row[key]
-  if (key === 'documentType') return value === 'SALES' ? '销售出库' : value === 'TRANSFER' ? '仓库调拨' : value
+  if (key === 'documentType')
+    return (
+      ({ SALES: '销售出库', TRANSFER: '仓库调拨', PURCHASE: '采购入库', COUNT: '库存盘点' } as Record<string, string>)[
+        String(value)
+      ] ?? value
+    )
   if (key === 'status') return statusLabels[String(value)] ?? value
   if (key === 'businessType') return row.meaning ?? value
   const kind =
@@ -165,7 +195,8 @@ function allowedSource(path: string) {
       <el-button
         v-for="candidate in evidence.candidates"
         :key="`${candidate.kind}:${candidate.id}`"
-        @click="emit('select', candidate)"
+        :disabled="readonly"
+        @click="!readonly && emit('select', candidate)"
         >{{ candidate.name }}（{{ candidate.code }}）</el-button
       >
     </div>
@@ -187,7 +218,8 @@ function allowedSource(path: string) {
           v-for="key in columns(table.rows)"
           :key="key"
           :label="labels[key]"
-          min-width="150"
+          :align="key.endsWith('Quantity') || key === 'quantity' ? 'right' : 'left'"
+          :min-width="key.endsWith('Quantity') || key === 'quantity' ? 190 : 150"
           ><template #default="{ row }">{{ display(row, key) }}</template></el-table-column
         ></el-table
       >
@@ -211,6 +243,23 @@ function allowedSource(path: string) {
 <style scoped>
 .evidence-card {
   margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.evidence-card p {
+  margin: 10px 0;
+}
+.evidence-card > :deep(.el-card__body) > strong {
+  font-size: 15px;
+}
+.result-table h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+.source-links a {
+  color: var(--sp-green-dark);
+  text-underline-offset: 4px;
 }
 .query-time {
   color: var(--el-text-color-secondary);

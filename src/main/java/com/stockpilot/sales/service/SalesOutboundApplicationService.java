@@ -27,6 +27,23 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class SalesOutboundApplicationService {
+    @Transactional(readOnly = true, timeout = 10)
+    public PageResult<SalesInventoryOrderVO> inventoryOrders(
+            com.stockpilot.inventory.request.InventoryDimensionQuery query,
+            String status,
+            long page,
+            long size) {
+        if (query == null
+                || status == null
+                || !Set.of("UNFINISHED", "DRAFT", "RESERVED", "APPROVED", "COMPLETED", "CANCELLED")
+                        .contains(status))
+            throw new IllegalArgumentException("Invalid sales query");
+        com.stockpilot.inventory.request.InventoryDimensionQuery.validatePage(page, size);
+        var result = outbounds.selectInventoryOrders(Page.of(page, size), query, status);
+        return new PageResult<>(
+                result.getRecords(), result.getTotal(), result.getCurrent(), result.getSize());
+    }
+
     @Transactional(readOnly = true)
     public com.stockpilot.inventory.vo.InventoryFrozenSourcePageVO frozenSources(
             com.stockpilot.inventory.request.InventoryDimensionQuery query, long page, long size) {
@@ -253,6 +270,8 @@ public class SalesOutboundApplicationService {
     // 分页查询销售出库摘要；查询单号与持久化单号采用相同的大写规范。
     @Transactional(readOnly = true)
     public PageResult<SalesOutboundSummaryVO> page(SalesOutboundRequests.PageQuery query) {
+        if (query == null || !query.isPeriodValid())
+            throw new IllegalArgumentException("Invalid document period");
         if (StringUtils.hasText(query.getOutboundNo())) {
             query.setOutboundNo(query.getOutboundNo().trim().toUpperCase(Locale.ROOT));
         }
