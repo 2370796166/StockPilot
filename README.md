@@ -1,87 +1,89 @@
 # StockPilot
 
-面向中小型制造、电商企业的仓储与库存管理平台。Java 17 / Spring Boot 3 后端，Vue 3 管理后台，MySQL 保存库存权威数据。包含采购入库、销售冻结与出库、调拨、盘点、库存流水和权限管理；Redis 缓存、RabbitMQ 异步预警、只读 AI 助手按需开启。
+面向中小型制造、电商企业的仓储与库存管理平台。支持采购入库、销售出库、跨仓调拨、盘点、库存流水和账号权限管理，提供 Vue 管理页面和 Spring Boot 后端。
 
-## 核心设计
+**第一次使用，建议先用 Docker 跑起来：按第 1～3 节操作，登录成功后再看第 5 节的业务演示。** Docker 会构建前后端并准备数据库，本机不需要另外安装 Java、Maven、Node.js 或 MySQL。
 
-| 业务问题 | 实现方式 | 代码入口 |
-|---|---|---|
-| 多张单据同时占用同一库存 | MySQL 条件更新检查可用量，检查影响行数；单据行锁协调重复动作，多明细按稳定顺序处理 | [库存写服务](src/main/java/com/stockpilot/inventory/service/InventoryMutationApplicationService.java) |
-| 单据成功但库存或流水失败 | 单据状态、余额和流水共同提交；任一明细失败整单回滚；唯一约束防重复生效 | [销售服务](src/main/java/com/stockpilot/sales/service/SalesOutboundApplicationService.java) |
-| 跨仓调拨及盘点 | 调出与收货分别提交，在途独立记录；盘点保存快照和维度锁，取消保留实盘证据 | [调拨](src/main/java/com/stockpilot/transfer/service/StockTransferApplicationService.java)、[盘点](src/main/java/com/stockpilot/inventory/count/service/InventoryCountApplicationService.java) |
-| MQ 故障或消息重复 | 业务事务写 Outbox，提交后发布，confirm/return、重试、消费幂等及死信处理；预警读取最新 MySQL 余额 | [消息发布](src/main/java/com/stockpilot/messaging/service/OutboxPublicationApplicationService.java) |
-| AI 误算数量或越权查询 | 只读工具白名单、逐工具授权、有限执行预算和证据校验；SQL/BigDecimal 计算数量，模型协议与任务编排分离 | [Agent](src/main/java/com/stockpilot/ai/service/AiAgentService.java)、[模型协议](src/main/java/com/stockpilot/ai/service/AiAgentModelProtocol.java) |
+项目没有固定的默认登录密码；首次管理员由你配置。新数据库没有演示商品和库存，启动后需要在页面上创建。
 
-库存按仓库、库位和 SKU 唯一，始终满足 `实际量 = 可用量 + 冻结量` 且三者非负。数量使用 `DECIMAL(19,4)` / `BigDecimal`，JSON 和前端全程使用十进制字符串。Redis 只缓存基础资料详情，业务有效性校验仍读 MySQL；缓存故障降级不决定库存结果。
+## 阅读路线
 
-```mermaid
-flowchart LR
-    UI[Vue 管理后台] --> HTTP[Controller / JWT / RBAC]
-    HTTP --> Business[采购 / 销售 / 调拨 / 盘点 Service]
-    Business --> Inventory[统一库存写服务]
-    Inventory --> DB[(MySQL 余额 / 流水 / 单据)]
-    Business --> Outbox[同事务写 Outbox]
-    Outbox --> MQ[RabbitMQ 异步投递]
-    MQ --> Alert[幂等消费 / 安全库存预警]
-    Alert --> DB
-    HTTP --> Agent[只读 AI Agent]
-    Agent --> Query[公开业务查询 Service]
-    Query --> DB
+| 你想做什么 | 从哪里开始 |
+|---|---|
+| 第一次在自己电脑上运行 | [1. 准备工具](#1-准备工具) → [2. 下载和配置](#2-下载项目并准备配置) → [3. Docker 启动](#3-用-docker-启动完整项目) |
+| 在 IDEA 阅读代码、调试 | 先完成第 1、2 节，再看 [4. 本地开发](#4-用-idea或命令行做本地开发) |
+| 登录后不知道怎么演示 | [5. 业务演示和日常操作](#5-登录后的业务演示和日常操作) |
+| 开启 AI、缓存或消息 | [6. 可选功能](#6-ai-配置先准备-api再开启助手) |
+| 启动、登录或下载报错 | [7. 常见问题](#7-常见问题按现象排查) |
+| 部署到 Linux 服务器 | [8. 服务器部署](#8-在-linux-服务器上运行) |
+| 了解设计、运行测试 | [9. 代码与验证](#9-代码结构设计和测试) |
+
+## 1. 准备工具
+
+### 只运行项目：安装 Git 和 Docker
+
+Windows 用户安装 [Git](https://git-scm.com/downloads/) 和 [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)。Docker Desktop 按官方教程配置 WSL 2，使用 **Linux 容器**，安装完成后还要打开 Docker Desktop，等待引擎启动。
+
+打开 PowerShell，逐行执行：
+
+```powershell
+git --version
+docker compose version
+docker info
 ```
 
-后端保持一个 Spring Boot 部署单元。默认角色为管理员、业务员和审核员；权限控制业务动作，当前没有仓库级数据权限，也不强制制单人与审核人不同。没有压测指标，不承诺未经测量的 TPS、延迟或容量。
+前两条应显示版本；第三条应显示 Docker 客户端和服务端信息，且没有连接错误。看到“命名管道不存在”或“无法连接 Docker daemon”时，先启动 Docker Desktop，不要继续构建。
 
-## 演示流程
+macOS 可使用 Docker Desktop；Linux 使用 [Docker Engine 和 Compose 插件](https://docs.docker.com/engine/install/)。本项目使用 `docker compose`，不是旧命令 `docker-compose`。
 
-完成下方启动和管理员配置后，先建立两个仓库及各自库位、一个 SKU，再按下表操作。单据编号需唯一；新库没有预置库存。先用管理员演示完整流程，也可分别使用业务员制单、审核员审核。
+### 要改代码：额外准备开发工具
 
-| 步骤 | 操作 | 应看到的库存结果（实际 / 可用 / 冻结） |
-|---|---|---|
-| 1 | 源仓采购入库 100，提交、审核、完成 | 源仓 `100 / 100 / 0` |
-| 2 | 创建销售单 20 并冻结 | 源仓 `100 / 80 / 20` |
-| 3 | 取消该销售单 | 源仓恢复 `100 / 100 / 0`，保留冻结及释放流水 |
-| 4 | 调拨 15 到目标仓，依次提交、审核、调出、转在途、收货 | 源仓 `85 / 85 / 0`，目标仓 `15 / 15 / 0`；在途期间目标仓不提前增加 |
-| 5 | 源仓盘点，开始后录入实盘 83，提交、审核、调整 | 源仓 `83 / 83 / 0`，产生盘亏 2 的流水 |
-| 6 | 查询库存流水，按业务单号查看来源 | 可追溯上述采购、冻结、释放、调拨和盘点动作 |
+仅选择第 4 节本地开发时，才需要 JDK 17、Maven 3.9+、[Node.js 22](https://nodejs.org/en/download) 和 IDEA。完整 Docker 启动会在镜像中安装构建工具。
 
-开启 AI 后，可用实际仓库/SKU 名称提问“源仓有哪些商品库存”“这个商品的冻结来源是什么”。数量每次重新查询，未开启 AI 也能演示完整业务。
+## 2. 下载项目并准备配置
 
-**第一次使用，先选一种启动方式，再按顺序配置。** 项目没有固定的默认登录密码，新数据库也不会自动生成演示库存。
+### 2.1 下载源码
 
-## 1. 选择启动方式
-
-| 方式 | 本机需要安装 | 适用场景 |
-|---|---|---|
-| 完整 Docker | Git、Docker Desktop / Docker Engine + Compose v2 | 直接运行和体验，不需要本机 Java、Maven、Node.js |
-| IDEA / 本地开发 | Git、JDK 17、Maven 3.9+、Node.js 22+、Docker | 阅读代码、断点调试、修改功能 |
-
-Windows 的 Docker Desktop 要启动并使用 **Linux 容器**。先执行 `docker info`，不能连接引擎时先解决 Docker 启动问题。
-
-下文主要使用 Windows PowerShell。除明确说明外，均在**项目根目录**执行，该目录同时包含 `pom.xml`、`docker-compose.yml` 和 `.env.example`。
-
-## 2. 下载项目，准备配置
+在你准备存放项目的目录打开 PowerShell，执行：
 
 ```powershell
 git clone https://github.com/2370796166/StockPilot.git
 cd StockPilot
-Copy-Item .env.example .env
+Get-ChildItem -Name
 ```
 
-macOS/Linux 的复制命令为 `cp .env.example .env`。已有 `.env` 时直接编辑，**不要再次复制覆盖**。
+应能看到 `pom.xml`、`docker-compose.yml`、`.env.example`、`frontend` 和 `src`。**这个 StockPilot 文件夹就是项目根目录**，后面的命令除特别说明外都在这里执行。不要在 `frontend` 或 `src` 内执行 Docker 命令。
 
-模板完整名称是 **`.env.example`**，不是 `.env.exam`，位于仓库根目录。它只含空密钥、默认值和示例，可以提交到 Git。真正的 `.env` 被 Git 忽略，也不会进入 Docker 构建上下文。`frontend/.env.example` 是可选的前端 API 地址模板，第一次启动不需要另建前端 `.env`。
+### 2.2 创建自己的配置文件
 
-### 2.1 必须填写：JWT 密钥和首次管理员
+首次下载后执行：
 
-打开根目录 `.env`，填写三项：
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+`.env.example` 是供大家复制的模板；`.env` 是你自己的实际配置。**已有 `.env` 就直接编辑，不要再复制覆盖。** 文件名必须是 `.env`，不能保存为 `.env.txt`；在文件管理器里打开“显示文件扩展名”可以检查。
+
+macOS/Linux 使用 `cp .env.example .env`，再用文本编辑器打开。第一次启动不需要复制 `frontend/.env.example`。
+
+### 2.3 必须填好三项
+
+在 `.env` 中找到下列已有配置行，修改等号右侧，**不要在文件末尾重复添加同名配置**：
 
 ```dotenv
-JWT_SECRET=把生成的随机密钥粘贴在这里
+JWT_SECRET=粘贴下一步生成的随机密钥
 BOOTSTRAP_ADMIN_USERNAME=admin
-BOOTSTRAP_ADMIN_PASSWORD=填写你自己的管理员密码
+BOOTSTRAP_ADMIN_PASSWORD=填写你自己设置并记住的管理员密码
 ```
 
-JWT 密钥至少32字符，用于签发登录令牌，**与 AI 的 API Key 是两个不同的配置**。在 PowerShell 中生成一次随机密钥：
+| 配置 | 是什么 | 怎么填 |
+|---|---|---|
+| `JWT_SECRET` | 后端签发登录令牌的密钥 | 使用下方命令生成；至少 32 字符。不是 AI API Key |
+| `BOOTSTRAP_ADMIN_USERNAME` | 首次创建的管理员用户名 | 第一次可填 `admin` |
+| `BOOTSTRAP_ADMIN_PASSWORD` | 该管理员的登录密码 | 设置自己的密码；页面登录时输入同一个值 |
+
+在 PowerShell 生成 JWT 密钥：
 
 ```powershell
 $jwtBytes = New-Object byte[] 32
@@ -91,13 +93,13 @@ $jwtRng.Dispose()
 [Convert]::ToBase64String($jwtBytes)
 ```
 
-将输出复制到 `JWT_SECRET=` 后。macOS/Linux 也可用 `openssl rand -base64 32`。不要把真实值填进 `.env.example` 或 README。
+将输出的一整行复制到 `JWT_SECRET=` 后。macOS/Linux 可用 `openssl rand -base64 32`。
 
-首次管理员的用户名、密码必须同时填写。不存在该用户名时，后端创建账号并赋予 `ADMIN`；已存在则跳过，**修改这两项不会重置既有账号密码或提升角色**。记住自己设置的密码，首次登录成功后可清空两项 `BOOTSTRAP_ADMIN_*`。后续沿用同一个 JWT 密钥，否则旧登录令牌失效。
+第一次建议密码用字母、数字、下划线、连字符组合；配置值不要套引号、不要在行末追加注释，避免 `$` 和反斜杠导致 Compose 或 properties 解析与预期不同。把上面示例的中文提示替换成真实值，保存文件。
 
-配置值不要额外套引号，也不要在值末尾追加注释：后端按 properties 文件读取 `.env`。操作系统中同名环境变量会覆盖文件值。
+管理员用户名和密码必须同时填写。不存在该用户名时后端会创建并赋予 `ADMIN`；已存在时直接跳过，因此改这两项**不会重置旧账号密码**。登录确认成功后可将两项 `BOOTSTRAP_ADMIN_*` 清空并重新创建后端容器，已有账号仍保留。后续继续使用同一个 JWT 密钥，换密钥会使旧登录令牌失效。
 
-### 2.2 第一次保留默认开关
+### 2.4 其他配置先保持默认
 
 ```dotenv
 CACHE_ENABLED=false
@@ -105,11 +107,17 @@ RABBITMQ_ENABLED=false
 AI_ENABLED=false
 ```
 
-先确认能打开页面并登录，再按第5、6节启用可选能力；这些开关不影响核心库存业务。
+这三个开关关闭时仍能完成采购、销售、调拨和盘点。先登录成功，再按第 6 节开启。
 
-## 3. 方式A：完整 Docker 启动
+模板中的数据库和 RabbitMQ 密码适合本机体验。首次在服务器建库前，请设置自己的 `DB_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`RABBITMQ_PASSWORD`；它们分别是数据库应用账号、数据库管理员、消息账号的密码，与网页登录密码无关。**已有数据卷仍使用旧密码，改 `.env` 不会自动修改库内账号。**
 
-完成第2节后，从项目根目录执行：
+真实 `.env` 被 Git 忽略，也不会进入 Docker 镜像；不要把密钥填进 `.env.example` 或前端配置。终端中同名环境变量会覆盖 `.env`，排错时也要检查是否以前设置过这些变量。
+
+## 3. 用 Docker 启动完整项目
+
+### 3.1 检查配置，再启动
+
+确认已保存 `.env`，从项目根目录逐条执行：
 
 ```powershell
 docker compose --profile app config --quiet
@@ -117,296 +125,309 @@ docker compose --profile app up -d --build
 docker compose --profile app ps
 ```
 
-第一条没有输出表示配置语法通过。首次启动会下载基础镜像和 Maven/npm 依赖并编译，耗时取决于网络。成功后有五个服务：`mysql`、`redis`、`rabbitmq`、`backend`、`frontend`。先等待基础设施 healthy，再启动后端和前端；前端由 Nginx 提供页面并转发 `/api`。
+第一条没有输出且没有报错，表示配置语法通过；它不验证登录密码或数据库是否能连接。有错误时先修正，不要继续执行下一条。
 
-检查应用与数据库：
+第二条会下载镜像和 Maven/npm 依赖，构建应用并在后台运行。首次耗时取决于网络，看到构建输出不断变化时继续等待。命令中的 `--profile app` 表示同时启动前后端；漏掉它就只会启动基础设施。`-d` 表示后台运行，终端退出不会停止容器。
+
+第三条应显示以下五个服务，最终状态均为 `healthy`：
+
+| 服务 | 做什么 |
+|---|---|
+| `mysql` | 保存账号、单据、库存和流水 |
+| `redis` | 提供可选的基础资料缓存 |
+| `rabbitmq` | 提供可选的异步消息处理 |
+| `backend` | 运行 Java 后端接口 |
+| `frontend` | 使用 Nginx 提供页面并转发 API 请求 |
+
+Redis、RabbitMQ 容器会随完整栈启动，但应用是否使用它们仍由第 2 节的开关决定。`starting` 表示仍在等待健康检查，可再次执行 `ps`；`exited` 或 `unhealthy` 则按第 7 节查看日志。
+
+### 3.2 确认页面和数据库都能访问
+
+在 PowerShell 执行：
 
 ```powershell
-Invoke-RestMethod http://localhost:5173/api/health
+Invoke-RestMethod http://localhost:5173/api/health | ConvertTo-Json
 ```
 
-正常返回 `code=SUCCESS`、`data.status=UP`、`data.database=UP`。打开 **[http://localhost:5173](http://localhost:5173)**，使用第2节设置的账号登录。
+应返回 `code` 为 `SUCCESS`，`data` 中 `status` 和 `database` 都为 `UP`。这表示页面的 API 代理、后端和 MySQL 可以连通；不代表 AI、Redis 或 RabbitMQ 已启用。
 
-| 入口 | 默认地址 | 用途 |
+浏览器打开 **[http://localhost:5173](http://localhost:5173)**，输入第 2 节自己设置的管理员用户名和密码。能登录并打开库存页面就完成首次启动；库存列表为空是正常的，接着看第 5 节。
+
+### 3.3 地址和端口
+
+| 入口 | 默认地址 | 说明 |
 |---|---|---|
-| 管理后台 | `http://localhost:5173` | 页面和同源 API 代理 |
-| 后端健康 | `http://localhost:8085/api/health` | 检查应用与数据库 |
-| Swagger | `http://localhost:8085/swagger-ui.html` | 后端接口文档 |
-| MySQL | `localhost:3307` | 本机客户端或 IDEA 后端连接 |
-| Redis | `localhost:6380` | 可选缓存 |
-| RabbitMQ | `localhost:5673` | AMQP；管理页面为 `http://localhost:15673` |
+| 管理页面 | `http://localhost:5173` | 平时使用这个地址 |
+| 后端健康 | `http://localhost:8085/api/health` | 直接检查后端和数据库 |
+| 接口文档 | `http://localhost:8085/swagger-ui.html` | 给开发者查看接口 |
+| MySQL | `localhost:3307` | 数据库客户端连接地址 |
+| Redis | `localhost:6380` | 本机可选缓存连接地址 |
+| RabbitMQ | `localhost:5673` | 消息连接端口，不是网页 |
+| RabbitMQ 管理页面 | `http://localhost:15673` | 用户 `stockpilot`，密码为 `RABBITMQ_PASSWORD` |
 
-默认只绑定本机 `127.0.0.1`。容器之间使用 `mysql:3306`、`redis:6379`、`rabbitmq:5672`，Compose 会覆盖容器内的连接地址，**不需要把 `.env` 里的 localhost 改成容器名**。Docker 内数据库、应用用户、消息用户和 vhost 分别是 `stockpilot`、`stockpilot`、`stockpilot`、`/stockpilot`。
+容器名称带项目名前缀，查日志时用 `mysql`、`backend` 等**服务名**即可。容器内部使用 `mysql:3306`、`redis:6379`、`rabbitmq:5672`，Compose 会自动配置，完整 Docker 模式不需要修改 `.env` 的 `DB_URL`。
 
-新 MySQL 卷的应用密码取 `DB_PASSWORD`，root 密码取 `MYSQL_ROOT_PASSWORD`；RabbitMQ 新卷密码取 `RABBITMQ_PASSWORD`。模板中的演示密码只供本地使用。已有卷保留旧密码，修改 `.env` 不会自动改变数据库或消息账号。
-
-端口被占用时，在 `.env` 修改：
+如果提示端口被占用，修改 `.env` 中对应项，例如：
 
 ```dotenv
-BACKEND_HOST_PORT=18085
 FRONTEND_HOST_PORT=15173
+BACKEND_HOST_PORT=18085
 MYSQL_HOST_PORT=33307
 ```
 
-再次执行 `docker compose --profile app up -d` 后，页面访问 `http://localhost:15173`，后端访问 `http://localhost:18085`。容器内部端口和 Nginx 代理不变。如果随后切换到 IDEA，还要把 `DB_URL` 的 MySQL 端口同步为33307。
+重新执行 `docker compose --profile app up -d`，页面地址改为 `http://localhost:15173`，后端健康地址改为 `http://localhost:18085/api/health`。若随后使用第 4 节本地开发，还要把 `DB_URL` 的 MySQL 端口改为 `33307`。
 
-常用命令：
+## 4. 用 IDEA（或命令行）做本地开发
 
-```powershell
-# 查看最近日志，用服务名，不依赖生成的容器名称
-docker compose --profile app logs --tail=100 backend frontend
-docker compose logs --tail=100 mysql rabbitmq
-# 修改 .env 后重新创建后端，让环境变量生效
-docker compose --profile app up -d --force-recreate backend
-# 修改源码后重新构建应用
-docker compose --profile app up -d --build backend frontend
-# 停止完整栈，保留数据
-docker compose --profile app stop
-# 下次重新启动
-docker compose --profile app up -d
-```
+这一节是另一种启动方式：MySQL 在 Docker 中运行，前后端在你的电脑上运行。已经用 Docker 登录成功、暂时不改代码时可以跳过。
 
-镜像为本机构建的 `stockpilot-backend:local`、`stockpilot-frontend:local`，无需手动提供 JAR。镜像构建只打包，完整测试单独按第8节执行。这套配置提供本地运行和演示入口；公网部署仍需配置域名、HTTPS、真实凭据和备份。
-
-## 4. 方式B：IDEA / 本地开发启动
-
-### 4.1 检查工具
+### 4.1 检查工具和数据库
 
 ```powershell
 java -version
 mvn -version
 node -v
 npm -v
-docker compose version
 ```
 
-JDK 选择17，检查 `mvn -version` 显示的 Java 也是17；Node.js 建议22或更高。如果提示“不是命令”，先安装工具并配置 PATH，再重新打开终端。
+Java 和 Maven 输出中的 Java 版本都应为 17；Node.js 使用 22。缺少命令时安装工具并配置 PATH，再重新打开终端。
 
-### 4.2 只启动基础设施
+如果之前用过完整 Docker，先停止它的前后端，避免抢占端口：
 
 ```powershell
+docker compose --profile app stop backend frontend
 docker compose up -d mysql
 docker compose ps
 ```
 
-等待 mysql healthy。未启用 `app` profile 时不会默认启动前后端容器。如果刚用过方式A，先执行 `docker compose --profile app stop backend frontend`，避免8085、5173端口冲突。
+等待 MySQL `healthy`。根目录 `.env` 中的 `DB_URL` 必须匹配宿主机端口；默认是 `localhost:3307/stockpilot`，`DB_USERNAME=stockpilot`，密码与新 MySQL 卷创建时的 `DB_PASSWORD` 一致。
 
-本地默认连接配置：
+### 4.2 启动后端
 
-```dotenv
-DB_URL=jdbc:mysql://localhost:3307/stockpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-DB_USERNAME=stockpilot
-DB_PASSWORD=stockpilot_dev
-```
+1. IDEA 打开项目根目录，加载 `pom.xml` 为 Maven 项目。
+2. Project SDK、Maven 导入和运行 JDK 都选择 17。
+3. Maven 的 User settings file 选择项目中的 `.mvn/settings.xml`，重新加载依赖。
+4. 在 `StockPilotApplication.java` 的运行配置中，将 Working directory 设置为项目根目录（`$PROJECT_DIR$`），然后运行 `main`。
 
-改了 `MYSQL_HOST_PORT` 就同步修改 URL 中的端口。IDEA 连接宿主端口，不是容器内部3306。自建 MySQL8 也可以，需先建立 `stockpilot` 数据库和具备迁移权限的应用账号，再填写自己的地址与凭据。
-
-### 4.3 在 IDEA 启动后端
-
-1. 打开项目根目录或 `pom.xml`，作为 Maven 项目加载。
-2. Project SDK、Maven 导入和运行 JDK 都选择17。
-3. 在 Maven 的 User settings file 中选择项目 `.mvn/settings.xml`，重新加载依赖。
-4. 运行 `src/main/java/com/stockpilot/StockPilotApplication.java` 的 `main` 方法。
-5. Run Configuration 的 **Working directory 设置为项目根目录**（可用 `$PROJECT_DIR$`），确保能读取根目录 `.env`。
-
-不需要 dotenv 插件，也不要把真实 Key 写入 IDEA 共享运行配置。也可在根目录直接执行：
+也可以不用 IDEA，在项目根目录执行：
 
 ```powershell
 mvn -s .mvn/settings.xml spring-boot:run
 ```
 
-终端保持打开。启动时 Flyway 自动创建业务表、角色和权限，**不需要手动逐个导入 SQL**。检查后端：
+这个终端要保持运行。后端启动时 Flyway 自动创建业务表和权限，**无需手动逐个导入 SQL**。另开终端执行 `Invoke-RestMethod http://localhost:8085/api/health`，应看到 UP/UP。不需要 dotenv 插件。
+
+### 4.3 启动前端
+
+另开 PowerShell，进入项目根目录后执行：
 
 ```powershell
-Invoke-RestMethod http://localhost:8085/api/health
+npm --prefix frontend ci
+npm --prefix frontend run dev
 ```
 
-健康应为 UP/UP。也可从根目录打包后运行：
+打开终端显示的地址，默认 `http://localhost:5173`；端口占用时 Vite 可能选择其他端口，以实际输出为准。前后端这两个终端都要保持运行，按 `Ctrl+C` 停止。
+
+默认前端把 `/api` 转发到 `http://localhost:8085`。如果改了本地后端 `SERVER_PORT`，先停止 Vite，在前端终端设置代理再启动，例如：
 
 ```powershell
-mvn -s .mvn/settings.xml clean package
-java -jar target/stockpilot-backend-0.0.1-SNAPSHOT.jar
+$env:VITE_API_PROXY_TARGET='http://localhost:18085'
+npm --prefix frontend run dev
 ```
 
-### 4.4 启动前端
+`SERVER_PORT` 是本地 Java 端口；`BACKEND_HOST_PORT` 是 Docker 的映射端口，两者用途不同。更多配置见 [本地启动手册](docs/operations/startup.md)。
 
-另开终端，从项目根目录执行：
+## 5. 登录后的业务演示和日常操作
+
+### 5.1 先建立资料，再产生库存
+
+用管理员账号，在“基础资料”中创建两个仓库、每个仓库各一个库位，以及一个商品。库位必须选择所属仓库；商品填写编码、名称和单位。编码可用 `WH_A`、`WH_B`、`LOC_A`、`LOC_B`、`SKU_A`，避免空格和中文编码。分类、供应商可按需要维护。
+
+创建商品不会自动产生库存；库存由业务单据产生。下面每步都针对同一商品和选定库位，业务单号用不同的英文或数字编号：
+
+| 步骤 | 在页面做什么 | 预期库存（实际 / 可用 / 冻结） |
+|---|---|---|
+| 1 | 源仓采购入库 100，依次提交、审核、完成 | 源仓 `100 / 100 / 0` |
+| 2 | 创建源仓销售单 20，执行冻结 | 源仓 `100 / 80 / 20` |
+| 3 | 取消该销售单 | 源仓恢复 `100 / 100 / 0`，流水保留冻结和释放记录 |
+| 4 | 调拨 15 到目标仓，依次提交、审核、调出、转在途、收货 | 源仓 `85 / 85 / 0`，目标仓 `15 / 15 / 0`；收货前目标仓不增加 |
+| 5 | 源仓盘点，开始后填实盘 83，提交、审核、调整 | 源仓 `83 / 83 / 0`，产生盘亏 2 的流水 |
+| 6 | 打开库存流水，用业务单号筛选 | 可以追溯以上库存变动 |
+
+“实际”是仓内总量，“冻结”是已被单据占用的数量，“可用”是还能分配的数量，始终满足 `实际 = 可用 + 冻结`。先用管理员完成整个流程，再体验业务员 `OPERATOR` 和审核员 `AUDITOR` 的权限区别。
+
+### 5.2 停止、重启和更新
+
+以下命令用于**完整 Docker 模式**，在项目根目录执行：
+
+| 你要做什么 | 命令 |
+|---|---|
+| 停止项目，保留数据 | `docker compose --profile app stop` |
+| 下次启动 | `docker compose --profile app up -d` |
+| 查看应用日志 | `docker compose --profile app logs --tail=100 backend frontend` |
+| 修改 `.env` 后加载新配置 | `docker compose --profile app up -d --force-recreate backend` |
+| 修改前后端源码后重新构建 | `docker compose --profile app up -d --build backend frontend` |
+
+`restart` 不会加载新的容器环境变量。确认本地修改已保存后，更新仓库代码可用 `git pull --ff-only`，然后按上表重新构建前后端；更新前先备份数据库，操作见 [MySQL 手册](docs/operations/mysql.md)。
+
+数据保存在 Docker 命名卷中，停止容器、普通 `down` 不会删除它们。**日常停止不要执行 `down -v` 或删除数据卷**，否则会丢失数据库和消息数据。保持项目目录名和 Compose 项目名一致，改名可能切换到另一套空卷。
+
+## 6. AI 配置：先准备 API，再开启助手
+
+### 6.1 AI 助手（可选）
+
+先完成普通登录和一笔采购，再开启 AI。聊天网站账号不能直接代替 API Key：到供应商 API 平台创建密钥、确认模型权限和额度，调用费用按供应商规则收取。
+
+例如使用 [DeepSeek API 平台](https://platform.deepseek.com/)，在根目录 `.env` 修改：
+
+```dotenv
+AI_ENABLED=true
+AI_PROVIDER=DEEPSEEK
+AI_BASE_URL=https://api.deepseek.com
+AI_MODEL=填入账户可调用且支持工具调用的模型名
+AI_API_KEY=填入你自己的API密钥
+```
+
+千问使用 `AI_PROVIDER=QWEN`，`AI_BASE_URL` 按 [百炼基础地址说明](https://www.alibabacloud.com/help/en/model-studio/base-url) 填 OpenAI 兼容基础地址，`AI_MODEL` 填已开通的模型名，Key 与地址的地域/工作空间应匹配。支持的供应商及完整参数见 [AI 使用说明](docs/operations/ai-assistant.md)。
+
+基础地址不要加 `/chat/completions`，不要填聊天网页地址；远程模型接口使用 HTTPS。模型需要支持工具调用和关闭思考模式。Docker 内的 `localhost` 是后端容器自身，不能直接指向宿主机模型服务。
+
+保存配置后，Docker 模式执行：
 
 ```powershell
-cd frontend
-npm ci
-npm run dev
+docker compose --profile app up -d --force-recreate backend
 ```
 
-打开终端显示的地址，默认 `http://localhost:5173`；端口被占用时 Vite 可能换端口，以实际输出为准。使用自己创建的管理员账号登录。
+IDEA/命令行模式停止并重新启动后端。重新登录后进入“AI 仓储助手”，使用自己建立的仓库、商品名称提问，例如“源仓有哪些商品库存”。无数据、缺条件或出现同名候选时，按页面提示补充。
 
-默认 `/api` 代理到 `http://localhost:8085`。若在 `.env` 改了本地后端 `SERVER_PORT=18085`，在**前端终端**配置代理后重启 Vite：
+AI 只查询和分析，不会自动制单、审核或改库存。必要问句和业务字段会发送到你配置的模型供应商。真实 Key 只放后端 `.env`，不能放前端 `VITE_*`、源码或配置模板。
 
-```powershell
-$env:VITE_API_PROXY_TARGET="http://localhost:18085"
-npm run dev
-```
+### 6.2 Redis 和 RabbitMQ（可选）
 
-macOS/Linux 对应 `VITE_API_PROXY_TARGET=http://localhost:18085 npm run dev`。
-
-## 5. 启用 Redis 和 RabbitMQ（可选）
-
-完整 Docker 已启动这两个容器，但仍需在 `.env` 开启功能。IDEA 模式先运行：
-
-```powershell
-docker compose up -d redis rabbitmq
-```
+Docker 完整栈已经启动它们；本地开发模式先执行 `docker compose up -d redis rabbitmq`。再按需要修改 `.env`：
 
 ```dotenv
 CACHE_ENABLED=true
 RABBITMQ_ENABLED=true
 ```
 
-Docker 后端执行 `docker compose --profile app up -d --force-recreate backend`；IDEA/命令行后端停止后重新运行。本地默认 Redis6380、RabbitMQ5673；容器模式自动使用内部端口。RabbitMQ 管理页默认用户 `stockpilot`，密码为 `.env` 的 `RABBITMQ_PASSWORD`。
+与 AI 一样，修改后重新创建 Docker 后端或重新运行本地后端。Redis 缓存商品、仓库详情；RabbitMQ 用于库存变化后的异步预警，均不承担核心库存扣减。详见 [Redis 手册](docs/operations/redis.md)、[RabbitMQ 手册](docs/operations/rabbitmq-reliability.md)。
 
-Redis 只缓存商品、仓库详情，RabbitMQ 处理允许延迟的预警，核心库存正确性由 MySQL 保证。
+## 7. 常见问题：按现象排查
 
-## 6. AI 配置：先准备 API，再开启助手
+先查看失败的是哪个服务，不要反复删库、重装项目：
 
-AI 默认关闭，不影响核心库存功能。**聊天网站账号不等于 API 权限**：需到供应商 API 平台创建 API Key、开通模型，并确认账户能调用；按供应商规则计费。
-
-所有 AI 配置只放在根目录 `.env`，不要放进前端 `VITE_*`、`.env.example`、Dockerfile 或 Git。前端请求本项目后端，由后端连接模型；镜像中不会包含真实 Key。
-
-### 6.1 DeepSeek 示例
-
-到 [DeepSeek API 平台](https://platform.deepseek.com/) 获取自己的 Key，编辑 `.env`：
-
-```dotenv
-AI_ENABLED=true
-AI_PROVIDER=DEEPSEEK
-AI_BASE_URL=https://api.deepseek.com
-AI_MODEL=deepseek-flash
-AI_API_KEY=在此填写你自己的API密钥
-AI_REQUEST_TIMEOUT=20s
-AI_TOTAL_TIMEOUT=90s
+```powershell
+docker compose --profile app ps -a
+docker compose --profile app logs --tail=100 backend
+docker compose logs --tail=100 mysql
 ```
 
-`deepseek-flash` 和基础地址以 [DeepSeek 官方文档](https://api-docs.deepseek.com/) 为依据；模型名称可能调整，以账户实际可调用的模型为准。项目要求支持工具调用和非思考模式，适配器会发送关闭思考参数。
-
-### 6.2 通义千问 / 百炼示例
-
-在百炼获取 Key 和可用模型，地址必须与 Key 的地域、工作空间和计费方案对应：
-
-```dotenv
-AI_ENABLED=true
-AI_PROVIDER=QWEN
-AI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-AI_MODEL=填写控制台可调用且支持工具的模型名称
-AI_API_KEY=在此填写百炼API密钥
-```
-
-这是北京地域兼容接口示例。其他地域和专用工作空间按 [百炼基础地址说明](https://www.alibabacloud.com/help/en/model-studio/base-url) 填写，不能混用地域 Key，也不能用聊天网页地址。项目对 QWEN 发送 `enable_thinking=false`。
-
-### 6.3 其他供应商与参数
-
-| AI_PROVIDER | AI_BASE_URL 的项目默认值 | AI_MODEL 怎么填 |
-|---|---|---|
-| DEEPSEEK | `https://api.deepseek.com` | 账户可调用的工具模型 |
-| QWEN | 必须填写 | 百炼控制台模型名，地址与地域匹配 |
-| GLM | `https://open.bigmodel.cn/api/paas/v4` | 智谱 API 平台的模型名 |
-| DOUBAO | `https://ark.cn-beijing.volces.com/api/v3` | 火山方舟模型名或接入点ID |
-| MOONSHOT | `https://api.moonshot.cn/v1` | Moonshot API 平台的模型名 |
-| CUSTOM | 必须填写 | Chat Completions/tools 兼容服务的模型名 |
-
-这些默认地址来自当前适配器，不代表供应商所有模型都可用。基础地址**不要追加 `/chat/completions`**，项目会自己追加。远程地址要求 HTTPS；HTTP 只允许 localhost/127.0.0.1 本地夹具。Docker 里的 localhost 是后端容器自身，不能直接用于宿主机模型。
-
-| 配置 | 默认 | 用途 |
-|---|---|---|
-| AI_REQUEST_TIMEOUT | 20s | 一轮模型请求等待上限 |
-| AI_TOTAL_TIMEOUT | 90s | 一次任务总执行预算 |
-| AI_AGENT_MAX_ROUNDS | 4 | 规划轮数，1～8 |
-| AI_AGENT_MAX_TOOL_CALLS | 12 | 业务工具总调用数，1～24 |
-| AI_AGENT_SESSION_TTL | 30m | 内存会话空闲有效期 |
-| AI_AGENT_INPUT_TTL | 5m | 等待用户补参有效期 |
-| AI_MAX_TOOL_CALLS | 6 | 旧同步 questions 接口预算，不是 Agent 页面总预算 |
-
-其他参数在 `.env.example` 有默认值，第一次不要同时改很多项。修改配置后，Docker 模式重新创建后端，IDEA 模式重新运行；**仅刷新网页不会加载新配置**。不要输出或截图完整 `.env`，不要把 Key 发进助手聊天框。
-
-### 6.4 在页面验证
-
-1. 先确认登录和 `/api/health` 正常。
-2. 用有库存/基础资料读取权限的账号进入“AI 仓储助手”；冻结来源和单据还需相应业务读取权限。
-3. 先创建仓库、库位、商品并完成一笔采购，再用实际名称提问，例如“查白云仓全部商品库存”；新库无数据是正常现象。
-4. 再试“哪些销售单还没完成”“这个商品的冻结来源是什么”。同名资料要选择候选，缺参时可直接发送“就在白云仓”。
-
-助手只读，不会自动制单、审核或调整库存。必要业务字段和问句会发送到配置的模型供应商；计算、权限和最终库存事实仍以服务端与 MySQL 为准。失败会保留已有证据，不能把查询失败当作零库存。
-
-## 7. 新手常见问题
-
-| 现象 | 检查方法 |
+| 现象 | 下一步 |
 |---|---|
-| 找不到 .env.exam | 实际名称是.env.example；确认在根目录，文件管理器可能隐藏点开头文件 |
-| Docker 引擎/命名管道不存在 | 启动 Docker Desktop，使用 Linux 容器，确保 docker info 成功 |
-| 镜像或依赖下载失败 | 检查网络、Docker代理/镜像服务；需能访问镜像仓库、Maven Central和npm，重试可复用缓存 |
-| 容器仍在 starting | 查看 compose ps 和 backend/mysql 日志，等待首次建库和迁移 |
-| 3307/8085/5173被占用 | 改前面的端口变量；不要同时运行占同端口的 IDEA 和 Docker 应用 |
-| MySQL 连接失败 | IDEA核对DB_URL端口；Docker检查mysql healthy；已有卷仍保留原密码 |
-| 登录失败/没有默认账号 | 用自己设置的BOOTSTRAP_ADMIN_*；两项同时填写并重启，已有用户名不会重置密码 |
-| JWT未配置 | 根目录.env填至少32字符随机密钥；IDEA工作目录为根目录，检查系统变量覆盖 |
-| 页面能开但API502 | 检查后端健康；IDEA检查Vite代理；Docker检查backend日志和网络 |
-| AI未启用 | AI_ENABLED=true后重启/重建后端；前端.env不是后端配置 |
-| AI配置无效 | 检查供应商、模型、Key非空、基础地址和超时；不要使用完整chat/completions URL |
-| AI请求失败 | 检查供应商401/403鉴权、402余额、429限流、5xx和网络；日志只记录错误分类 |
-| AI无数据/要求选择 | 使用真实名称，先建立业务数据；同名需选择，部分工具需要仓库和日期 |
-| AI权限不足 | 管理员授予业务读取权限；403不是启动失败 |
-| 健康UP但AI不可用 | 健康只验证应用与数据库，不验证模型、Key、Redis或RabbitMQ |
-| Flyway校验失败 | 不改已执行SQL，不盲目repair或删除卷；核对代码与数据库版本 |
-| Maven clean删JAR失败 | 停止使用本项目target JAR的应用，再重建；不要结束其他项目Java进程 |
+| `git`、`docker`、`mvn` 或 `npm` 不是命令 | 安装对应工具；完整 Docker 不需要 Maven/npm。重新打开终端检查 PATH |
+| Docker 引擎/命名管道不存在 | 打开 Docker Desktop，使用 Linux 容器，先让 `docker info` 成功 |
+| 找不到 `.env`、缺少 Compose 配置 | 回到同时含 `pom.xml` 和 `docker-compose.yml` 的根目录；检查是否误存为 `.env.txt` |
+| 镜像、Maven 或 npm 下载失败 | 根据报错检查 Docker 镜像仓库、Maven Central 或 npm 的网络/代理；修复后重试构建，可复用缓存 |
+| 端口被占用 | 按第 3.3 节改对应宿主端口；避免 Docker 应用与本地前后端同时运行 |
+| 只有三个容器，没有页面 | 启动时漏了 `--profile app`；运行第 3.1 节完整命令 |
+| `starting` 一直不结束 | 看对应服务日志；优先确认 MySQL healthy，再查 backend，最后查 frontend |
+| 页面能开，但 `/api/health` 返回 502 | 查 backend 是否健康；本地开发检查 Java 端口和 Vite 代理 |
+| 数据库连接失败 / Access denied | 核对数据库日志和凭据；本地开发还需匹配 DB_URL 端口。旧卷密码不会随 `.env` 改变 |
+| 登录提示 JWT 未配置 | JWT_SECRET 至少 32 字符；Docker 重新创建后端，本地从根目录运行，并检查环境变量覆盖 |
+| 管理员账号无法登录 | 用自己填的密码；首次创建需同时配置两个 BOOTSTRAP_ADMIN 字段。已有用户名不会重置密码 |
+| 不小心忘记管理员密码 | 引导配置不是找回密码功能；有其他管理员时从用户管理修改。不要通过删数据卷“恢复”账号 |
+| 登录后没有库存 | 新库是空的，先按第 5.1 节建资料并完成采购；保存或提交采购草稿不会增加库存 |
+| 接口返回 401 / 403 | 401 重新登录并核对用户状态；403 检查角色权限，健康正常也可能没有业务权限 |
+| AI 不可用，但健康为 UP | 检查 AI 开关、模型、Key 和供应商报错；健康接口只检查后端与数据库 |
+| 修改 `.env` 没生效 | Docker 使用 `up -d --force-recreate backend`，本地重启后端；刷新网页不够 |
+| Flyway 校验失败 | 不改已执行 SQL、不盲目 repair；核对源码版本和迁移历史，保留数据排查 |
+| Maven clean 无法删除 JAR | 停止正在使用本项目 target JAR 的应用后重试，不要结束其他项目的 Java 进程 |
 
-## 8. 测试、数据保存和停止
+更多网络、数据卷和启动细节见 [Docker 手册](docs/operations/docker.md)。
 
-后端常规测试不连接外部数据库或模型：
+## 8. 在 Linux 服务器上运行
 
-```powershell
-mvn -s .mvn/settings.xml clean test
+先能在本机完成第 1～3 节，再在服务器安装 Git、Docker Engine 和 Compose 插件。以下是**服务器 SSH 终端中的 Bash 命令**，不要直接复制到 Windows PowerShell：
+
+```bash
+git clone https://github.com/2370796166/StockPilot.git
+cd StockPilot
+cp .env.example .env
+chmod 600 .env
+openssl rand -base64 32
+nano .env
 ```
 
-前端测试：
+按第 2 节填写 JWT、管理员和自己的数据库/消息密码，保留 `COMPOSE_BIND_IP=127.0.0.1`；保存后执行：
 
-```powershell
-cd frontend
-npm ci
-npm test
-npm run build
-```
-
-以下完整本地检查在项目根目录执行，直接使用 Maven 和 npm：
-
-```powershell
-mvn -s .mvn/settings.xml clean verify spotless:check
-docker compose config --quiet
+```bash
 docker compose --profile app config --quiet
+docker compose --profile app up -d --build
+docker compose --profile app ps
+curl -fsS http://127.0.0.1:5173/api/health
+```
+
+服务器上的 `localhost` 指服务器，不是你的电脑。首次远程体验可以用 SSH 转发，在**自己电脑的新终端**执行（替换用户名和服务器 IP）：
+
+```powershell
+ssh -N -L 15173:127.0.0.1:5173 用户名@服务器IP
+```
+
+连接成功后保持终端运行，在自己电脑打开 `http://localhost:15173`。这条命令不会显示交互式服务器提示符。服务器若改了 `FRONTEND_HOST_PORT`，也要同步修改转发目标端口。
+
+默认 Compose 仅监听本机，不能直接用服务器 IP 打开页面。需要让多人通过域名访问时，在服务器配置带 HTTPS 的反向代理，转发到 `127.0.0.1:5173`，按需开放网页入口；MySQL、Redis、RabbitMQ 保持本机绑定。服务器防火墙、HTTPS、定期数据库备份和运行账号权限需要自行配置，仓库没有一键生产部署脚本。
+
+## 9. 代码结构、设计和测试
+
+### 项目文件
+
+| 目录或文件 | 用途 |
+|---|---|
+| `src/main` | Java 业务代码、配置和 Flyway 数据库迁移 |
+| `frontend/src` | Vue 管理页面和 API 请求 |
+| `src/test`、`frontend/tests` | 回归测试，用于验证修改；不进入最终应用 JAR 或页面资源 |
+| `pom.xml`、`.mvn/settings.xml` | Maven 依赖、Java 构建与格式检查 |
+| `frontend/package.json`、`package-lock.json` | 前端依赖和命令；锁文件用于保持依赖安装一致 |
+| `Dockerfile`、`frontend/Dockerfile`、`docker-compose.yml` | 构建镜像及启动服务 |
+| `docker/mysql/init`、`frontend/docker` | MySQL 首次初始化、Nginx 页面/API 代理 |
+| `.env.example` | 可公开的配置模板；实际配置另存为 `.env` |
+
+后端为 Java 17、Spring Boot 3 的模块化单体；前端使用 Vue 3、TypeScript、Vite、Element Plus。库存以 MySQL 为权威来源，数量使用 `DECIMAL(19,4)` / `BigDecimal`，前端和 JSON 保留十进制字符串。
+
+| 要解决的问题 | 实现方式 | 代码入口 |
+|---|---|---|
+| 并发占用、重复执行 | 条件更新、单据行锁、版本与唯一约束，库存统一写入口 | [库存写服务](src/main/java/com/stockpilot/inventory/service/InventoryMutationApplicationService.java) |
+| 单据、余额、流水同时成功或失败 | 同一 MySQL 本地事务，多明细失败整体回滚 | [销售服务](src/main/java/com/stockpilot/sales/service/SalesOutboundApplicationService.java) |
+| 跨仓调拨、盘点审计 | 独立在途事实、盘点快照和维度锁 | [调拨](src/main/java/com/stockpilot/transfer/service/StockTransferApplicationService.java)、[盘点](src/main/java/com/stockpilot/inventory/count/service/InventoryCountApplicationService.java) |
+| 消息故障、重复消费 | 同事务 Outbox、确认/重试、消费幂等与死信 | [消息发布](src/main/java/com/stockpilot/messaging/service/OutboxPublicationApplicationService.java) |
+| AI 数量计算和查询权限 | 只读工具、逐次授权、预算与证据校验，后端计算数量 | [Agent](src/main/java/com/stockpilot/ai/service/AiAgentService.java)、[模型协议](src/main/java/com/stockpilot/ai/service/AiAgentModelProtocol.java) |
+
+### 验证代码
+
+以下命令在项目根目录执行，需要本机 JDK 17、Maven 和 Node.js。常规测试不连接真实数据库、消息服务或 AI 模型：
+
+```powershell
+mvn -s .mvn/settings.xml clean test spotless:check
+npm --prefix frontend ci
+npm --prefix frontend test
 npm --prefix frontend run typecheck
 npm --prefix frontend run lint
 npm --prefix frontend run format:check
-# 配好独立测试环境后，执行真实 MySQL / RabbitMQ 集成检查
-mvn -s .mvn/settings.xml -Pmysql-it verify
-mvn -s .mvn/settings.xml -Prabbit-it verify
+npm --prefix frontend run build
 ```
 
-真实集成测试自动创建带随机后缀的专用测试库并清理，数据库账号需有创建/删除测试库权限。宿主机默认 MySQL3307、RabbitMQ5673，消息 vhost 为 `/stockpilot-it`；与开发 `/stockpilot` 隔离，需提前创建并授权。端口或凭据不同可通过 `STOCKPILOT_IT_ADMIN_URL/USER/PASSWORD`、`STOCKPILOT_IT_RABBIT_HOST/PORT/USER/PASSWORD/VHOST` 配置；具体步骤见 [MySQL手册](docs/operations/mysql.md) 和 [RabbitMQ手册](docs/operations/rabbitmq-reliability.md)。
+真实 MySQL、RabbitMQ 集成测试分别用 `-Pmysql-it verify`、`-Prabbit-it verify`，先按 [MySQL](docs/operations/mysql.md) 和 [RabbitMQ](docs/operations/rabbitmq-reliability.md) 手册准备独立测试环境。测试会创建并清理专用测试库和消息拓扑，不要给它生产账号或清空开发队列。
 
-普通测试不调用真实模型。启用 AI 后，按第6节使用自己的模型配置和业务数据检查；健康通过只表示应用与数据库可用。
+测试源码保留在仓库；个人验收脚本、工作流、手动模型探针和本地记录不随仓库提供。没有未经实测的 TPS、延迟或容量承诺。当前为单企业系统，不含多租户、批次、成本核算、仓库级权限或 AI 自动制单；安全库存规则和消息人工补偿暂无管理页面。
 
-IDEA点击停止，本地终端按Ctrl+C；完整Docker执行 `docker compose --profile app stop`。MySQL和RabbitMQ数据在命名卷里，重启保留；Flyway只执行未应用的迁移。
+### 操作手册
 
-`docker compose --profile app down` 移除容器和网络、保留卷。**日常操作不要加 `-v`，会删除数据库和消息数据。** 改项目目录名或Compose项目名可能选另一套卷，不表示原数据已丢失。
-
-## 9. 进一步阅读
-
-| 文件 | 用途 |
+| 手册 | 内容 |
 |---|---|
-| [.env.example](.env.example) | 完整配置模板，无真实密钥 |
-| [Docker手册](docs/operations/docker.md) | 镜像、网络、数据卷和两种模式 |
-| [启动手册](docs/operations/startup.md) | 本地开发启动补充 |
-| [AI说明](docs/operations/ai-assistant.md) | 工具、权限、会话和证据边界 |
-| [MySQL说明](docs/operations/mysql.md) | 数据库连接、初始化、Flyway和备份 |
-| [Redis说明](docs/operations/redis.md) | 开启详情缓存、参数和故障排查 |
-| [RabbitMQ说明](docs/operations/rabbitmq-reliability.md) | 消息用途、Outbox、重试和死信 |
-
-仍为单企业模块化单体；没有多租户、批次、成本核算、Refresh Token或仓库级数据权限。安全库存规则和消息人工补偿暂无管理页面。AI只做只读查询，不支持自动制单和库存调整。
+| [本地启动](docs/operations/startup.md) | IDEA、宿主机连接和配置 |
+| [Docker](docs/operations/docker.md) | 镜像、网络、端口和数据卷 |
+| [MySQL](docs/operations/mysql.md) | 建库、迁移、备份和测试环境 |
+| [Redis](docs/operations/redis.md) | 详情缓存开关和排错 |
+| [RabbitMQ](docs/operations/rabbitmq-reliability.md) | Outbox、重试、死信和测试环境 |
+| [AI 助手](docs/operations/ai-assistant.md) | 模型参数、权限、证据和使用边界 |
