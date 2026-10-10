@@ -55,7 +55,7 @@ docker compose --profile app stop
 
 根目录Dockerfile构建Java17后端，frontend/Dockerfile构建前端后由Nginx托管。镜像构建只打包；常规测试需独立执行 `mvn clean test` 和前端测试。
 
-MySQL首次空卷执行docker/mysql/init/001-init.sql建立骨架；后端启动时Flyway建立业务表并执行待应用迁移。不要重复手动导入SQL，不修改迁移历史。卷实际名称带Compose项目名前缀，改目录或项目名会选择另一套卷。
+MySQL首次使用空卷时自动创建数据库和应用账号；后端启动时Flyway建立业务表并执行待应用迁移。不用手动导入SQL，不修改迁移历史。卷实际名称带Compose项目名前缀，改目录或项目名会选择另一套卷。
 
 stop保留容器和数据；`docker compose --profile app down`删除容器与网络、保留命名卷。日常不要加-v，它会删除数据库和消息数据。独立测试可用不同项目名和端口，不需要动已有卷。
 

@@ -30,10 +30,10 @@ IDEA 后端读取 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`。修改 `MYSQL_HOST_
 
 | 入口 | 何时执行 | 作用 |
 |---|---|---|
-| `docker/mysql/init/001-init.sql` | MySQL 首次使用空卷 | 创建历史骨架，不创建完整业务表 |
+| Compose 的 MySQL 环境变量 | MySQL 首次使用空卷 | 创建数据库和应用账号 |
 | `src/main/resources/db/migration/V*.sql` | 后端启动 | Flyway 创建业务表并升级数据库 |
 
-不需要逐个手动导入 SQL。当前最新迁移为 `0.9.2`，真实已执行版本查看 `flyway_schema_history`；`schema_version` 只是历史骨架记录。迁移脚本建立基础资料、权限、库存、四类单据、Outbox 和安全库存相关表。
+不需要逐个手动导入 SQL。当前最新迁移为 `0.9.2`，真实已执行版本查看 `flyway_schema_history`。迁移脚本建立基础资料、权限、库存、四类单据、Outbox 和安全库存相关表。
 
 库存数量使用 `DECIMAL(19,4)`，余额满足 `实际量 = 可用量 + 冻结量` 且各项非负。库存写入和不可变流水由后端统一事务管理，不应通过数据库客户端直接修改库存或删除流水。
 

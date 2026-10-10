@@ -1,6 +1,7 @@
 target/
 .m2/
 /.mvn/
+/docker/mysql/init/001-init.sql
 .idea/
 *.iml
 .vscode/
