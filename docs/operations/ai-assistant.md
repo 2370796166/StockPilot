@@ -18,7 +18,7 @@ AI_REQUEST_TIMEOUT=20s
 AI_TOTAL_TIMEOUT=90s
 ```
 
-具体获取入口、DeepSeek 示例和千问填写说明见 [README 的 AI 配置](../../README.md#6-ai-配置先准备-api再开启助手)。基础地址不要追加 `/chat/completions`，不要使用聊天网页地址。远程服务要求 HTTPS；供应商、Key、地域和模型必须匹配。项目关闭模型思考模式，纯思考模型不适用。
+DeepSeek 示例见 [README 的 AI 配置](../../README.md#ai-和其他可选功能)；千问地址按 [百炼基础地址说明](https://www.alibabacloud.com/help/en/model-studio/base-url) 填写，与 Key 的地域和工作空间匹配。基础地址不要追加 `/chat/completions`，不要使用聊天网页地址。远程服务要求 HTTPS；供应商、Key、地域和模型必须匹配。项目关闭模型思考模式，纯思考模型不适用。
 
 | AI_PROVIDER | 当前适配器默认地址 | 注意 |
 |---|---|---|

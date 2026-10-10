@@ -60,3 +60,33 @@ MySQL首次空卷执行docker/mysql/init/001-init.sql建立骨架；后端启动
 stop保留容器和数据；`docker compose --profile app down`删除容器与网络、保留命名卷。日常不要加-v，它会删除数据库和消息数据。独立测试可用不同项目名和端口，不需要动已有卷。
 
 本配置提供本机演示入口，公网部署仍需配置域名、HTTPS、真实凭据、数据库权限和备份。MySQL始终是库存权威来源，Redis/MQ不会接管核心库存写入。
+
+## 放到 Linux 服务器运行
+
+服务器先安装 Git、Docker Engine 和 Compose 插件。在服务器终端下载项目，复制配置：
+
+```bash
+git clone https://github.com/2370796166/StockPilot.git
+cd StockPilot
+cp .env.example .env
+chmod 600 .env
+openssl rand -base64 32
+```
+
+用文本编辑器打开 `.env`，按 README 填 JWT 密钥和首次管理员账号，并将 `DB_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`RABBITMQ_PASSWORD` 换成自己的密码。已有配置不要重复复制。保存后执行：
+
+```bash
+docker compose --profile app up -d --build
+docker compose --profile app ps
+curl -fsS http://127.0.0.1:5173/api/health
+```
+
+默认只允许服务器本机访问。想先在自己电脑上体验，在电脑的新终端执行（替换用户名和服务器 IP）：
+
+```powershell
+ssh -N -L 15173:127.0.0.1:5173 用户名@服务器IP
+```
+
+保持这个终端运行，电脑浏览器打开 `http://localhost:15173`。服务器改过页面端口时，也要同步修改转发命令中的 `5173`。
+
+需要通过域名给多人使用时，在服务器配置 HTTPS 反向代理，转发到 `127.0.0.1:5173`；数据库、Redis 和 RabbitMQ 保持本机绑定，并做好备份。SSH 转发用于先验证部署，不替代正式网页入口。
