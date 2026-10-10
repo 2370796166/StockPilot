@@ -49,14 +49,15 @@ docker compose ps
 在 IDEA 中：
 
 1. 打开项目根目录，加载 Maven 项目。
-2. 项目和 Maven 的 JDK 都选 17，Maven settings 选项目中的 `.mvn/settings.xml`。
-3. 找到 `src/main/java/com/stockpilot/StockPilotApplication.java`。
-4. 运行配置的 Working directory 设为项目根目录（`$PROJECT_DIR$`），再运行 `main`。
+2. 项目和 Maven 的 JDK 都选 17。Maven settings 和本地仓库通常用默认值即可。
+3. 在 Maven 窗口点击“重新加载所有 Maven 项目”，等待依赖下载完成。
+4. 找到 `src/main/java/com/stockpilot/StockPilotApplication.java`。
+5. 运行配置的 Working directory 设为项目根目录（`$PROJECT_DIR$`），选择 `StockPilotApplication` 再运行；不要选成 Docker Compose 的 `frontend`。
 
 或者在终端执行：
 
 ```powershell
-mvn -s .mvn/settings.xml spring-boot:run
+mvn spring-boot:run
 ```
 
 保持这个终端运行。第一次会下载依赖，程序启动时自动创建业务表，不用自己导入 SQL。

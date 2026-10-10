@@ -1,5 +1,6 @@
 target/
 .m2/
+/.mvn/
 .idea/
 *.iml
 .vscode/

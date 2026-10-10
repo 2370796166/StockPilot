@@ -156,7 +156,7 @@ AI_API_KEY=填写你自己的API密钥
 回归测试保留在 `src/test` 和 `frontend/tests`，不会放进最终应用 JAR 或页面资源。修改代码后可在根目录运行：
 
 ```powershell
-mvn -s .mvn/settings.xml clean test
+mvn clean test
 npm --prefix frontend ci
 npm --prefix frontend test
 ```

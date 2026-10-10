@@ -53,7 +53,7 @@ MySQL 数据保存在 Compose 命名卷。`stop` 和不带 `-v` 的 `down` 保�
 $env:STOCKPILOT_IT_ADMIN_URL='jdbc:mysql://127.0.0.1:3307/?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false'
 $env:STOCKPILOT_IT_ADMIN_USER='你的测试数据库管理员'
 $env:STOCKPILOT_IT_ADMIN_PASSWORD='你的测试数据库密码'
-mvn -s .mvn/settings.xml -Pmysql-it verify
+mvn -Pmysql-it verify
 ```
 
 URL 指向 MySQL 服务，不填业务库名；与宿主映射端口保持一致。不提供环境变量时使用本地测试默认3307/root/root_dev_only。

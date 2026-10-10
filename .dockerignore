@@ -2,8 +2,6 @@
 **
 !Dockerfile
 !pom.xml
-!.mvn/
-!.mvn/settings.xml
 !src/
 !src/**
 # Exclude local configuration even if it lives below src.

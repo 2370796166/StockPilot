@@ -1,10 +1,9 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /workspace
 COPY pom.xml ./
-COPY .mvn/settings.xml .mvn/settings.xml
 COPY src src
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn -B -s .mvn/settings.xml -Dmaven.repo.local=/root/.m2/repository -DskipTests package
+    mvn -B -Dmaven.repo.local=/root/.m2/repository -DskipTests package
 
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app

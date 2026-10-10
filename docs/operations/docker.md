@@ -53,7 +53,7 @@ Invoke-RestMethod http://localhost:5173/api/health
 docker compose --profile app stop
 ```
 
-根目录Dockerfile构建Java17后端，frontend/Dockerfile构建前端后由Nginx托管。镜像构建只打包；常规测试需独立执行 `mvn -s .mvn/settings.xml clean test` 和前端测试。
+根目录Dockerfile构建Java17后端，frontend/Dockerfile构建前端后由Nginx托管。镜像构建只打包；常规测试需独立执行 `mvn clean test` 和前端测试。
 
 MySQL首次空卷执行docker/mysql/init/001-init.sql建立骨架；后端启动时Flyway建立业务表并执行待应用迁移。不要重复手动导入SQL，不修改迁移历史。卷实际名称带Compose项目名前缀，改目录或项目名会选择另一套卷。
 
