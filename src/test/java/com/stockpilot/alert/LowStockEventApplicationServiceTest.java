@@ -67,7 +67,7 @@ class LowStockEventApplicationServiceTest {
             rule.setId(5L);
             rule.setThresholdQuantity(new BigDecimal(threshold));
             when(rules.selectEnabledByDimension(10L, 20L, 30L)).thenReturn(rule);
-            when(inventory.findBalance(10L, 20L, 30L))
+            when(inventory.findBalanceForEvaluation(10L, 20L, 30L))
                     .thenReturn(
                             Optional.of(
                                     new InventoryBalanceVO(

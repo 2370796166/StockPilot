@@ -93,6 +93,16 @@ const businessItems = computed(
       auth.can('INVENTORY_COUNT_READ') && { path: '/documents/inventory-counts', label: '库存盘点', icon: Checked },
       auth.can('INVENTORY_READ') && { path: '/inventory/balances', label: '库存余额', icon: Box },
       auth.can('INVENTORY_READ') && { path: '/inventory/ledgers', label: '库存流水', icon: TrendCharts },
+      auth.can('SAFETY_STOCK_READ') && { path: '/inventory/safety-stock', label: '安全库存', icon: Checked },
+      auth.can('INVENTORY_RECONCILE') &&
+        auth.can('INVENTORY_READ') &&
+        auth.can('SALES_OUTBOUND_READ') &&
+        auth.can('TRANSFER_READ') &&
+        auth.user?.allWarehouses !== false && {
+          path: '/inventory/reconciliation',
+          label: '库存对账',
+          icon: TrendCharts,
+        },
     ].filter(Boolean) as Array<{ path: string; label: string; icon: typeof Box }>,
 )
 const securityItems = computed(
@@ -100,6 +110,10 @@ const securityItems = computed(
     [
       auth.can('SECURITY_USER_READ') && { path: '/security/users', label: '用户管理', icon: User },
       auth.can('SECURITY_ROLE_READ') && { path: '/security/roles', label: '角色管理', icon: UserFilled },
+      auth.can('MESSAGE_FAILURE_READ') &&
+        auth.user?.allWarehouses !== false && { path: '/operations/messages', label: '消息异常', icon: Tickets },
+      auth.can('OPERATIONS_READ') &&
+        auth.user?.allWarehouses !== false && { path: '/operations/status', label: '运行状态', icon: TrendCharts },
     ].filter(Boolean) as Array<{ path: string; label: string; icon: typeof User }>,
 )
 

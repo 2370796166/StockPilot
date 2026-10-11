@@ -290,21 +290,32 @@ class MessagingMySqlIT {
                         outboxMapper,
                         traceMapper,
                         failureMapper,
-                        message -> sent.incrementAndGet(),
-                        new MessagingProperties());
+                        message -> {
+                            assertEquals(
+                                    false,
+                                    org.springframework.transaction.support
+                                            .TransactionSynchronizationManager
+                                            .isActualTransactionActive());
+                            sent.incrementAndGet();
+                        },
+                        new MessagingProperties(),
+                        transactions.getTransactionManager());
         jdbc.execute(
                 "CREATE TRIGGER fail_outbox_status BEFORE UPDATE ON async_outbox_message FOR EACH ROW BEGIN IF NEW.status='PUBLISHED' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='forced post-confirm failure'; END IF; END");
         try {
-            assertThrows(
-                    RuntimeException.class,
-                    () -> transactions.execute(status -> publisher.publishNextDue()));
+            assertThrows(RuntimeException.class, publisher::publishNextDue);
             assertEquals(
                     "PENDING",
                     jdbc.queryForObject("SELECT status FROM async_outbox_message", String.class));
             assertEquals(
-                    0,
+                    1,
                     jdbc.queryForObject(
                             "SELECT publish_attempts FROM async_outbox_message", Integer.class));
+            assertEquals(
+                    1,
+                    count(
+                            "SELECT COUNT(*) FROM async_outbox_message WHERE claim_token IS NOT NULL AND claim_until>CURRENT_TIMESTAMP(3)"));
+            assertEquals(false, publisher.publishNextDue());
             assertEquals(
                     0,
                     count(
@@ -312,7 +323,9 @@ class MessagingMySqlIT {
         } finally {
             jdbc.execute("DROP TRIGGER IF EXISTS fail_outbox_status");
         }
-        Boolean published = transactions.execute(status -> publisher.publishNextDue());
+        jdbc.update(
+                "UPDATE async_outbox_message SET claim_until=TIMESTAMPADD(SECOND,-1,CURRENT_TIMESTAMP(3))");
+        Boolean published = publisher.publishNextDue();
         assertEquals(Boolean.TRUE, published);
         assertEquals(2, sent.get()); // At least once: same event may be confirmed twice after a
         // crash/rollback.

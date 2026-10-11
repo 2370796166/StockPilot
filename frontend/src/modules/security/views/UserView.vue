@@ -32,6 +32,13 @@ import ServerPagination from '@/shared/components/ServerPagination.vue'
 import StatusTag from '@/shared/components/StatusTag.vue'
 import type { RoleRecord, UserRecord } from '@/modules/security/types'
 import type { DataStatus } from '@/shared/types/api'
+import WarehouseScopeDialog from '@/modules/security/WarehouseScopeDialog.vue'
+const warehouseDialog = ref(false),
+  warehouseUser = ref<number>()
+function warehouseGrant(user: UserRecord) {
+  warehouseUser.value = user.id
+  warehouseDialog.value = true
+}
 const loading = ref(false),
   records = ref<UserRecord[]>([]),
   total = ref(0),
@@ -165,7 +172,7 @@ const ElTableColumn = TableColumn<UserRecord>
           label="创建时间"
         /><el-table-column
           label="操作"
-          width="220"
+          min-width="320"
           ><template #default="s"
             ><PermissionGate authority="SECURITY_USER_WRITE"
               ><el-button
@@ -185,6 +192,11 @@ const ElTableColumn = TableColumn<UserRecord>
                 type="primary"
                 @click="grant(s.row)"
                 >分配角色</el-button
+              ><el-button
+                link
+                type="primary"
+                @click="warehouseGrant(s.row)"
+                >仓库权限</el-button
               ></PermissionGate
             ></template
           ></el-table-column
@@ -255,4 +267,8 @@ const ElTableColumn = TableColumn<UserRecord>
       ></el-dialog
     >
   </div>
+  <WarehouseScopeDialog
+    v-model="warehouseDialog"
+    :user-id="warehouseUser"
+  />
 </template>

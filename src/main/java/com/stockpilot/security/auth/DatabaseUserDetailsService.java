@@ -26,7 +26,13 @@ public class DatabaseUserDetailsService {
                 userMapper.findPermissionCodes(id).stream()
                         .map(SimpleGrantedAuthority::new)
                         .toList();
-        return new UsernamePasswordAuthenticationToken(
-                new AuthenticatedActor(id, username), null, authorities);
+        var authentication =
+                new UsernamePasswordAuthenticationToken(
+                        new AuthenticatedActor(id, username), null, authorities);
+        authentication.setDetails(
+                new com.stockpilot.shared.auth.WarehouseScope(
+                        userMapper.allWarehouses(id),
+                        java.util.Set.copyOf(userMapper.warehouseIds(id))));
+        return authentication;
     }
 }

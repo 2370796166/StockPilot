@@ -21,14 +21,14 @@ public final class StockTransferRequests {
             @NotNull @Positive Long sourceWarehouseId,
             @NotNull @Positive Long targetWarehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Line> lines) {}
+            @NotEmpty @Size(max = 200) List<@Valid Line> lines) {}
 
     public record Update(
             @NotNull @Min(0) Integer version,
             @NotNull @Positive Long sourceWarehouseId,
             @NotNull @Positive Long targetWarehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Line> lines) {}
+            @NotEmpty @Size(max = 200) List<@Valid Line> lines) {}
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 

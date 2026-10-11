@@ -114,4 +114,13 @@ public class InventoryQueryApplicationService {
         InventoryBalanceEntity balance = balances.selectByDimension(warehouseId, locationId, skuId);
         return Optional.ofNullable(balance).map(InventoryViewConverter::balance);
     }
+
+    /** Current read for serialized rule evaluation; joins the evaluator's transaction. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public Optional<InventoryBalanceVO> findBalanceForEvaluation(
+            long warehouseId, long locationId, long skuId) {
+        return Optional.ofNullable(
+                        balances.selectByDimensionForUpdate(warehouseId, locationId, skuId))
+                .map(InventoryViewConverter::balance);
+    }
 }

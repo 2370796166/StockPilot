@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  flyway:
+    enabled: false
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+stockpilot:
+  business:
+    separate-approval: true
+  security:
+    new-users-all-warehouses: false
+    login-attempts-per-minute: 20
+    login-global-attempts-per-minute: 300

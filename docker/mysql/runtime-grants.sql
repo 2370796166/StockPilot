@@ -1,0 +1,36 @@
+-- Template: replace the schema, account and password in a PRIVATE copy before running as DB administrator.
+-- The example password is a placeholder, not a usable deployment credential.
+CREATE USER 'stockpilot_runtime'@'%' IDENTIFIED BY 'REPLACE_WITH_RUNTIME_PASSWORD';
+GRANT SELECT ON stockpilot.* TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.warehouse TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.warehouse_location TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.product_category TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.sku TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.supplier TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.sys_user TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.sys_role TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.sys_permission TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.sys_user_role TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.sys_role_permission TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.sys_user_warehouse TO 'stockpilot_runtime'@'%';
+GRANT INSERT ON stockpilot.audit_log TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.inventory_balance TO 'stockpilot_runtime'@'%';
+GRANT INSERT ON stockpilot.inventory_ledger TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.purchase_receipt TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.purchase_receipt_line TO 'stockpilot_runtime'@'%';
+GRANT INSERT ON stockpilot.purchase_receipt_action TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.sales_outbound_order TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.sales_outbound_line TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.stock_transfer_order TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.stock_transfer_line TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.stock_transfer_transit TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.inventory_count_order TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.inventory_count_line TO 'stockpilot_runtime'@'%';
+GRANT INSERT,DELETE ON stockpilot.inventory_count_scope_lock TO 'stockpilot_runtime'@'%';
+GRANT INSERT ON stockpilot.inventory_count_action TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.safety_stock_rule TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.low_stock_alert TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.async_outbox_message TO 'stockpilot_runtime'@'%';
+GRANT INSERT ON stockpilot.async_consumed_message TO 'stockpilot_runtime'@'%';
+GRANT INSERT ON stockpilot.async_message_trace TO 'stockpilot_runtime'@'%';
+GRANT INSERT,UPDATE ON stockpilot.async_failure_record TO 'stockpilot_runtime'@'%';

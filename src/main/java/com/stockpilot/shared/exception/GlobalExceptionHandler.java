@@ -78,6 +78,13 @@ public class GlobalExceptionHandler {
         return build(AccessErrorCode.FORBIDDEN, AccessErrorCode.FORBIDDEN.message());
     }
 
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiResponse<Void>> handleLockFailure(
+            org.springframework.dao.PessimisticLockingFailureException exception) {
+        log.warn("Database transaction conflict requestId={}", org.slf4j.MDC.get("requestId"));
+        return build(CommonErrorCode.BUSINESS_CONFLICT, "事务发生并发冲突，请重新查询单据状态后重试");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
         log.error("Unhandled server exception", exception);

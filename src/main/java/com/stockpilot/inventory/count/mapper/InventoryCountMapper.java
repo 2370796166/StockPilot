@@ -7,6 +7,28 @@ import com.stockpilot.inventory.count.request.InventoryCountRequests;
 import org.apache.ibatis.annotations.*;
 
 public interface InventoryCountMapper {
+    @Insert(
+            """
+        INSERT INTO inventory_count_action(count_id,action,from_status,to_status,reason,operator_id,operator_name,document_version,evidence_json)
+        SELECT id,'RETURN',status,'COUNTING',#{reason},#{actorId},#{actorName},version,
+          JSON_OBJECT('submittedBy',submitted_by,'submittedAt',CAST(submitted_at AS CHAR),
+            'lines',(SELECT JSON_ARRAYAGG(JSON_OBJECT('lineId',id,'countedQuantity',CAST(counted_quantity AS CHAR),'differenceQuantity',CAST(difference_quantity AS CHAR),'reason',reason)) FROM inventory_count_line WHERE count_id=#{id}))
+        FROM inventory_count_order WHERE id=#{id}
+        """)
+    int appendReturn(
+            @Param("id") long id,
+            @Param("reason") String reason,
+            @Param("actorId") long actorId,
+            @Param("actorName") String actorName);
+
+    @Update(
+            "UPDATE inventory_count_order SET status='COUNTING',submitted_by=NULL,submitted_by_name=NULL,submitted_at=NULL,version=version+1 WHERE id=#{id} AND status='SUBMITTED' AND version=#{version}")
+    int returnToCounting(@Param("id") long id, @Param("version") int version);
+
+    @Select(
+            "SELECT action,from_status,to_status,reason,operator_id,operator_name,document_version,evidence_json,occurred_at FROM inventory_count_action WHERE count_id=#{id} ORDER BY id DESC LIMIT 100")
+    java.util.List<com.stockpilot.shared.api.BusinessActionVO> actions(long id);
+
     @Select("SELECT id FROM inventory_count_order WHERE count_no = #{number}")
     Long selectIdByNumber(String number);
 

@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/modules/auth/store'
-import { transitionCount, cancelCount } from '@/modules/inventory-count/api'
+import { transitionCount, cancelCount, rejectCount } from '@/modules/inventory-count/api'
 import type { CountSummary } from '@/modules/inventory-count/types'
 
 export interface InventoryCountAction {
@@ -25,6 +25,7 @@ export function useInventoryCountActions(reload: () => Promise<void>) {
     }
     if (count.status === 'SUBMITTED') {
       available.push({ key: 'approve', label: '审核', authority: 'INVENTORY_COUNT_APPROVE', requiresVersion: true })
+      available.push({ key: 'reject', label: '退回重盘', authority: 'INVENTORY_COUNT_APPROVE', requiresVersion: true })
     }
     if (count.status === 'APPROVED') {
       available.push({ key: 'adjust', label: '执行调整', authority: 'INVENTORY_COUNT_ADJUST', requiresVersion: false })
@@ -39,13 +40,20 @@ export function useInventoryCountActions(reload: () => Promise<void>) {
     if (acting.value !== undefined) return
     acting.value = count.id
     try {
-      if (action.key === 'cancel') {
-        const { value } = await ElMessageBox.prompt('取消后释放盘点锁，保留原实盘记录。请填写取消原因。', '取消盘点', {
-          type: 'warning',
-          inputValidator: (value: string) =>
-            (!!value?.trim() && value.trim().length <= 255) || '原因不能为空且最多255字',
-        })
-        await cancelCount(count.id, count.version, value.trim())
+      if (action.key === 'cancel' || action.key === 'reject') {
+        const { value } = await ElMessageBox.prompt(
+          action.key === 'cancel'
+            ? '取消后释放盘点锁，保留原实盘记录。请填写取消原因。'
+            : '退回后保留盘点锁与原实盘证据，可以重新录入结果。请填写退回原因。',
+          action.label,
+          {
+            type: 'warning',
+            inputValidator: (value: string) =>
+              (!!value?.trim() && value.trim().length <= 255) || '原因不能为空且最多255字',
+          },
+        )
+        if (action.key === 'cancel') await cancelCount(count.id, count.version, value.trim())
+        else await rejectCount(count.id, count.version, value.trim())
       } else {
         await ElMessageBox.confirm(`确认执行“${action.label}”吗？`, '关键操作确认', { type: 'warning' })
         await transitionCount(count.id, action.key, action.requiresVersion ? count.version : undefined)

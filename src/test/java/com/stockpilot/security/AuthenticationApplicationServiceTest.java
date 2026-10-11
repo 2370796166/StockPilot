@@ -35,7 +35,13 @@ class AuthenticationApplicationServiceTest {
                 new SecurityProperties("01234567890123456789012345678901", 60, "", "");
         service =
                 new AuthenticationApplicationService(
-                        users, roles, encoder, new JwtService(p), new AuditService(logs), p);
+                        users,
+                        roles,
+                        encoder,
+                        new JwtService(p),
+                        new AuditService(logs),
+                        p,
+                        new LoginAttemptLimiter(50, 1000));
     }
 
     @Test
@@ -141,7 +147,13 @@ class AuthenticationApplicationServiceTest {
                         "01234567890123456789012345678901", 60, "bootstrap_admin", "1234");
         AuthenticationApplicationService bootstrap =
                 new AuthenticationApplicationService(
-                        users, roles, encoder, new JwtService(p), new AuditService(logs), p);
+                        users,
+                        roles,
+                        encoder,
+                        new JwtService(p),
+                        new AuditService(logs),
+                        p,
+                        new LoginAttemptLimiter(50, 1000));
         RoleEntity admin = new RoleEntity();
         admin.setId(3L);
         admin.setCode("ADMIN");
@@ -171,7 +183,8 @@ class AuthenticationApplicationServiceTest {
                         encoder,
                         new JwtService(properties),
                         new AuditService(logs),
-                        properties);
+                        properties,
+                        new LoginAttemptLimiter(50, 1000));
         assertThrows(
                 IllegalStateException.class,
                 () -> bootstrap.run(mock(org.springframework.boot.ApplicationArguments.class)));
@@ -194,7 +207,8 @@ class AuthenticationApplicationServiceTest {
                         encoder,
                         new JwtService(properties),
                         new AuditService(logs),
-                        properties);
+                        properties,
+                        new LoginAttemptLimiter(50, 1000));
         bootstrap.run(mock(org.springframework.boot.ApplicationArguments.class));
         verify(users, never()).insert(any());
         verify(users, never()).insertRoles(anyLong(), any());

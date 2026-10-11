@@ -28,7 +28,7 @@ export async function pageDocuments(
     ...params,
     [noKey(kind)]: params.no,
     no: undefined,
-    status: kind === 'sales' ? params.status : undefined,
+    status: params.status,
   }
   const result = await request<PageResult<Record<string, unknown>>>({ method: 'GET', url: base(kind), params: query })
   return { ...result, records: result.records.map((item) => summary(kind, item)) }
@@ -38,7 +38,7 @@ export async function getDocument(kind: DocumentKind, id: number) {
 }
 export async function createDocument(
   kind: DocumentKind,
-  data: { no: string; warehouseId: number; remark: string; lines: DocumentLine[] },
+  data: { no: string; warehouseId: number; remark: string; lines: DocumentLine[]; supplierId?: number },
 ) {
   const body = { ...data, [noKey(kind)]: data.no, no: undefined, lines: writableLines(data.lines) }
   return detail(kind, await request<Record<string, unknown>>({ method: 'POST', url: base(kind), data: body }))
@@ -46,7 +46,7 @@ export async function createDocument(
 export async function updateDocument(
   kind: DocumentKind,
   id: number,
-  data: { version: number; warehouseId: number; remark: string; lines: DocumentLine[] },
+  data: { version: number; warehouseId: number; remark: string; lines: DocumentLine[]; supplierId?: number },
 ) {
   return detail(
     kind,
@@ -57,13 +57,19 @@ export async function updateDocument(
     }),
   )
 }
-export async function transitionDocument(kind: DocumentKind, id: number, action: string, version?: number) {
+export async function transitionDocument(
+  kind: DocumentKind,
+  id: number,
+  action: string,
+  version?: number,
+  reason?: string,
+) {
   return detail(
     kind,
     await request<Record<string, unknown>>({
       method: 'POST',
       url: `${base(kind)}/${id}/${action}`,
-      data: version === undefined ? undefined : { version },
+      data: version === undefined ? undefined : reason === undefined ? { version } : { version, reason },
     }),
   )
 }

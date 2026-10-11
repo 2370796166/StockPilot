@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.0
+    image: mysql:8.0.46
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
@@ -22,7 +22,7 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
   redis:
-    image: redis:7.2-alpine
+    image: redis:7.2-alpine@sha256:ccd6aa8d45ff3f033d6fa15b8cc1a50579f65c89f38cf9bb607a954c4f2128ed
     restart: unless-stopped
     ports:
       - "${COMPOSE_BIND_IP:-127.0.0.1}:${REDIS_HOST_PORT:-6380}:6379"
@@ -33,7 +33,7 @@ services:
       retries: 20
       start_period: 5s
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:3.13-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
     hostname: stockpilot-rabbitmq
     restart: unless-stopped
     environment:
@@ -65,7 +65,7 @@ services:
       TZ: Asia/Shanghai
       SERVER_PORT: 8085
       DB_URL: jdbc:mysql://mysql:3306/stockpilot?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-      DB_USERNAME: stockpilot
+      DB_USERNAME: ${DB_USERNAME:-stockpilot}
       DB_PASSWORD: ${DB_PASSWORD:-stockpilot_dev}
       REDIS_HOST: redis
       REDIS_PORT: 6379

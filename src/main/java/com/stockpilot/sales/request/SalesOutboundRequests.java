@@ -27,13 +27,13 @@ public final class SalesOutboundRequests {
             @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{2,64}") String outboundNo,
             @NotNull @Positive Long warehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Line> lines) {}
+            @NotEmpty @Size(max = 200) List<@Valid Line> lines) {}
 
     public record Update(
             @NotNull @Min(0) Integer version,
             @NotNull @Positive Long warehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Line> lines) {}
+            @NotEmpty @Size(max = 200) List<@Valid Line> lines) {}
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 

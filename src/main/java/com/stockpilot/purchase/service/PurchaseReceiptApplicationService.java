@@ -48,18 +48,85 @@ public class PurchaseReceiptApplicationService {
     private final MasterDataReferenceApplicationService masterData;
     private final InventoryMutationApplicationService inventory;
     private final TransactionalOutboxApplicationService outbox;
+    private final com.stockpilot.masterdata.service.SupplierApplicationService supplierService;
+
+    @org.springframework.beans.factory.annotation.Value(
+            "${stockpilot.business.separate-approval:false}")
+    private boolean separateApproval;
+
+    private String supplierName(Long id) {
+        if (id == null) return null;
+        var supplier = supplierService.detail(id);
+        if (supplier.status() != com.stockpilot.masterdata.domain.MasterDataStatus.ENABLED)
+            throw new BusinessException(
+                    com.stockpilot.shared.api.CommonErrorCode.BUSINESS_CONFLICT, "供应商已停用");
+        return supplier.name();
+    }
+
+    @Transactional
+    public PurchaseReceiptVO reject(
+            long id, PurchaseReceiptRequests.Reason request, AuthenticatedActor actor) {
+        requireActor(actor);
+        var current = requireLocked(id);
+        requireState(current, PurchaseReceiptStatus.SUBMITTED);
+        requireVersion(current, request.version());
+        recordStateChange(current, "RETURN", PurchaseReceiptStatus.DRAFT, request.reason(), actor);
+        return get(id);
+    }
+
+    @Transactional
+    public PurchaseReceiptVO cancel(
+            long id, PurchaseReceiptRequests.Reason request, AuthenticatedActor actor) {
+        requireActor(actor);
+        var current = requireLocked(id);
+        requireVersion(current, request.version());
+        if (current.getStatus() == PurchaseReceiptStatus.COMPLETED
+                || current.getStatus() == PurchaseReceiptStatus.CANCELLED)
+            throw new BusinessException(PurchaseReceiptErrorCode.INVALID_STATE);
+        recordStateChange(
+                current, "CANCEL", PurchaseReceiptStatus.CANCELLED, request.reason(), actor);
+        return get(id);
+    }
+
+    private void recordStateChange(
+            PurchaseReceiptEntity current,
+            String action,
+            PurchaseReceiptStatus next,
+            String reason,
+            AuthenticatedActor actor) {
+        if (reason == null || reason.isBlank() || reason.trim().length() > 255)
+            throw new BusinessException(
+                    com.stockpilot.shared.api.CommonErrorCode.INVALID_PARAMETER);
+        if (receipts.appendAction(
+                                current.getId(),
+                                action,
+                                next.name(),
+                                reason.trim(),
+                                actor.userId(),
+                                actor.username())
+                        != 1
+                || receipts.changeState(
+                                current.getId(),
+                                current.getVersion(),
+                                current.getStatus().name(),
+                                next.name())
+                        != 1)
+            throw new BusinessException(PurchaseReceiptErrorCode.PERSISTENCE_FAILURE);
+    }
 
     public PurchaseReceiptApplicationService(
             PurchaseReceiptMapper receipts,
             PurchaseReceiptLineMapper lines,
             MasterDataReferenceApplicationService masterData,
             InventoryMutationApplicationService inventory,
-            TransactionalOutboxApplicationService outbox) {
+            TransactionalOutboxApplicationService outbox,
+            com.stockpilot.masterdata.service.SupplierApplicationService supplierService) {
         this.receipts = receipts;
         this.lines = lines;
         this.masterData = masterData;
         this.inventory = inventory;
         this.outbox = outbox;
+        this.supplierService = supplierService;
     }
 
     // 创建采购入库草稿：校验仓库、库位、SKU 和明细唯一性，规范化单号后一次性保存单头与明细。
@@ -76,6 +143,8 @@ public class PurchaseReceiptApplicationService {
         receipt.setWarehouseId(request.warehouseId());
         receipt.setStatus(PurchaseReceiptStatus.DRAFT);
         receipt.setRemark(normalizeRemark(request.remark()));
+        receipt.setSupplierId(request.supplierId());
+        receipt.setSupplierName(supplierName(request.supplierId()));
         receipt.setCreatedBy(actor.userId());
         receipt.setCreatedByName(actor.username());
         try {
@@ -105,6 +174,7 @@ public class PurchaseReceiptApplicationService {
                 validateAndBuildLines(id, request.warehouseId(), request.lines());
 
         lines.deleteByReceiptId(id);
+        String supplierName = supplierName(request.supplierId());
         if (receipts.updateDraft(
                         id,
                         request.version(),
@@ -114,6 +184,9 @@ public class PurchaseReceiptApplicationService {
             throw new BusinessException(PurchaseReceiptErrorCode.CONCURRENT_MODIFICATION);
         }
         insertLines(newLines);
+        if (!java.util.Objects.equals(current.getSupplierId(), request.supplierId())
+                && receipts.updateSupplier(id, request.supplierId(), supplierName) != 1)
+            throw new BusinessException(PurchaseReceiptErrorCode.PERSISTENCE_FAILURE);
         return get(id);
     }
 
@@ -144,6 +217,9 @@ public class PurchaseReceiptApplicationService {
         PurchaseReceiptEntity current = requireLocked(id);
         requireState(current, PurchaseReceiptStatus.SUBMITTED);
         requireVersion(current, request.version());
+        if (separateApproval && actor.userId().equals(current.getCreatedBy()))
+            throw new BusinessException(
+                    com.stockpilot.shared.api.CommonErrorCode.BUSINESS_CONFLICT, "制单人不能审核自己的单据");
         if (receipts.approve(id, request.version(), actor.userId(), actor.username()) != 1) {
             throw new BusinessException(PurchaseReceiptErrorCode.CONCURRENT_MODIFICATION);
         }
@@ -208,7 +284,8 @@ public class PurchaseReceiptApplicationService {
         if (receipt == null) {
             throw new BusinessException(PurchaseReceiptErrorCode.NOT_FOUND);
         }
-        return PurchaseReceiptViewAssembler.detail(receipt, lines.selectByReceiptId(id));
+        return PurchaseReceiptViewAssembler.detail(
+                receipt, lines.selectByReceiptId(id), receipts.actions(id));
     }
 
     // 分页查询采购入库摘要；单号查询统一转为大写以匹配创建时的规范化规则。
@@ -230,7 +307,7 @@ public class PurchaseReceiptApplicationService {
 
     private List<PurchaseReceiptLineEntity> validateAndBuildLines(
             Long receiptId, long warehouseId, List<PurchaseReceiptRequests.Line> requests) {
-        if (requests == null || requests.isEmpty()) {
+        if (requests == null || requests.isEmpty() || requests.size() > 200) {
             throw new BusinessException(PurchaseReceiptErrorCode.EMPTY_LINES);
         }
         Set<Dimension> dimensions = new HashSet<>();

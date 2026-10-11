@@ -17,9 +17,9 @@ MySQL、Redis、RabbitMQ默认可用；backend/frontend属于app profile。基�
 
 | 服务 | 镜像 | 默认宿主 → 容器端口 | 持久化 |
 |---|---|---|---|
-| mysql | mysql:8.0 | 3307 → 3306 | stockpilot_mysql_data命名卷 |
-| redis | redis:7.2-alpine | 6380 → 6379 | 可恢复缓存，无持久卷 |
-| rabbitmq | rabbitmq:3.13-management-alpine | 5673 → 5672；15673 → 15672 | stockpilot_rabbitmq_data命名卷 |
+| mysql | mysql:8.0.46 | 3307 → 3306 | stockpilot_mysql_data命名卷 |
+| redis | redis:7.2-alpine（固定摘要） | 6380 → 6379 | 可恢复缓存，无持久卷 |
+| rabbitmq | rabbitmq:3.13-management-alpine（固定摘要） | 5673 → 5672；15673 → 15672 | stockpilot_rabbitmq_data命名卷 |
 | backend | 本机多阶段构建stockpilot-backend:local | 8085 → 8085 | 业务数据在MySQL |
 | frontend | 本机多阶段构建stockpilot-frontend:local | 5173 → 80 | Nginx提供构建后的Vue资源 |
 

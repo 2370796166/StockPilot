@@ -27,9 +27,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 JwtService.Claims c = jwt.verify(h.substring(7));
                 Authentication a = users.load(c.userId(), c.username());
-                if (a != null) SecurityContextHolder.getContext().setAuthentication(a);
+                if (a != null) {
+                    SecurityContextHolder.getContext().setAuthentication(a);
+                    com.stockpilot.shared.auth.WarehouseAccess.bind(
+                            (com.stockpilot.shared.auth.WarehouseScope) a.getDetails());
+                }
             } catch (BusinessException ignored) {
             }
-        chain.doFilter(req, res);
+        try {
+            chain.doFilter(req, res);
+        } finally {
+            com.stockpilot.shared.auth.WarehouseAccess.clear();
+        }
     }
 }

@@ -61,6 +61,7 @@ class PurchaseReceiptSecurityTest {
     @MockBean private InventoryBalanceMapper balances;
     @MockBean private InventoryLedgerMapper ledgers;
     @MockBean private TransactionalOutboxApplicationService outbox;
+    @MockBean private com.stockpilot.masterdata.service.SupplierApplicationService supplierService;
 
     @Test
     void readPermissionAllowsQueries() throws Exception {

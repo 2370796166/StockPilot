@@ -15,7 +15,7 @@ public final class InventoryCountRequests {
             @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{2,64}") String countNo,
             @NotNull @Positive Long warehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Dimension> dimensions) {}
+            @NotEmpty @Size(max = 200) List<@Valid Dimension> dimensions) {}
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 
@@ -29,7 +29,8 @@ public final class InventoryCountRequests {
             @NotBlank @Size(max = 255) String reason) {}
 
     public record RecordResults(
-            @NotNull @Min(0) Integer version, @NotEmpty List<@Valid Result> results) {}
+            @NotNull @Min(0) Integer version,
+            @NotEmpty @Size(max = 200) List<@Valid Result> results) {}
 
     public static final class PageQuery extends com.stockpilot.shared.query.DocumentDateRangeQuery {
         @Min(1)

@@ -51,3 +51,5 @@ docs/architecture/optimization-review.md
 !/docs/operations/redis.md
 !/docs/operations/rabbitmq-reliability.md
 !/docs/operations/ai-assistant.md
+!/docs/operations/production.md
+!/docs/operations/inventory-operations.md

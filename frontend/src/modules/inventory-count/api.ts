@@ -29,3 +29,5 @@ export const recordCountResults = (
 
 export const cancelCount = (id: number, version: number, reason: string) =>
   request<CountDetail>({ method: 'POST', url: `/inventory-counts/${id}/cancel`, data: { version, reason } })
+export const rejectCount = (id: number, version: number, reason: string) =>
+  request<CountDetail>({ method: 'POST', url: `/inventory-counts/${id}/reject`, data: { version, reason } })

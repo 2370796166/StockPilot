@@ -27,7 +27,7 @@ docker compose ps
 | stockpilot.transfer.received | 调拨目标端收货维度 |
 | stockpilot.inventory-count.adjusted | 盘点调整维度（无差异也允许重新评估） |
 
-新增事件统一使用 `business.inventory.availability-changed.v1` routing key，绑定到既有预警队列。销售实际出库和调拨调出不再次改变可用量；盘点取消不改变任何数量，因此不追加对应可用量事件。交付允许重复，消费者依靠数据库幂等，不是端到端恰好一次。发布失败与确认后的数据库失败分开处理：后者抛出并回滚，不能作为网络失败吞掉；状态或关键发布轨迹影响行数异常同样回滚。当前仍在短消息发布事务内等待 Broker confirm，尚未改为租约认领/事务外发布。
+新增事件统一使用 `business.inventory.availability-changed.v1` routing key，绑定到既有预警队列。销售实际出库和调拨调出不再次改变可用量；盘点取消不改变任何数量，因此不追加对应可用量事件。交付允许重复，消费者依靠数据库幂等，不是端到端恰好一次。发布失败与确认后的数据库失败分开处理：确认落库失败只回滚该次确认事务，已提交的领取和尝试次数保留，不能作为网络失败吞掉；领取过期后可用原消息 ID 重投。
 
 ## 默认拓扑与重试
 
@@ -55,7 +55,9 @@ docker compose ps
 
 只读排查表为 `async_outbox_message`、`async_consumed_message`、`async_message_trace`、`async_failure_record`、`safety_stock_rule`、`low_stock_alert`。不要清开发队列、改库存或手工重发消息作为常规恢复方式。
 
-当前没有异常人工补偿管理 API/页面、自动失败重放或积压告警。RabbitMQ 单节点命名卷提供本地持久化，不代表高可用或备份。正式运维恢复流程需结合授权、备份和审计另行建立。
+“消息异常”页面提供失败查询、原事件重试与人工结论审计，操作边界见[库存操作说明](inventory-operations.md)；运行状态页面展示积压观测值，尚不自动推送外部告警。RabbitMQ 单节点命名卷不代表高可用或备份。
+
+发布采用短事务领取消息，等待 Broker confirm 时不占用数据库事务；默认领取60秒，需大于确认超时加5秒。进程退出或确认落库失败后，过期领取可重新投递；迟到确认必须匹配领取令牌。确认与数据库提交仍不是原子事务，消费者继续按原消息 ID 幂等。
 
 ## 真实 Broker 集成测试
 

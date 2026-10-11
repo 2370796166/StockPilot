@@ -100,6 +100,30 @@ const router = createRouter({
           meta: { title: '库存流水', authority: 'INVENTORY_READ' },
         },
         {
+          path: 'inventory/safety-stock',
+          name: 'safety-stock',
+          component: () => import('@/modules/safety-stock/SafetyStockView.vue'),
+          meta: { title: '安全库存', authority: 'SAFETY_STOCK_READ' },
+        },
+        {
+          path: 'inventory/reconciliation',
+          name: 'inventory-reconciliation',
+          component: () => import('@/modules/reconciliation/ReconciliationView.vue'),
+          meta: { title: '库存对账', authority: 'INVENTORY_RECONCILE' },
+        },
+        {
+          path: 'operations/messages',
+          name: 'message-failures',
+          component: () => import('@/modules/operations/MessageFailuresView.vue'),
+          meta: { title: '消息异常', authority: 'MESSAGE_FAILURE_READ' },
+        },
+        {
+          path: 'operations/status',
+          name: 'operations-status',
+          component: () => import('@/modules/operations/OperationsStatusView.vue'),
+          meta: { title: '运行状态', authority: 'OPERATIONS_READ' },
+        },
+        {
           path: 'security/users',
           name: 'security-users',
           component: () => import('@/modules/security/views/UserView.vue'),

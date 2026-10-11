@@ -74,7 +74,8 @@ class PurchaseReceiptApplicationServiceTest {
                         lines,
                         masterData,
                         inventory,
-                        mock(TransactionalOutboxApplicationService.class));
+                        mock(TransactionalOutboxApplicationService.class),
+                        mock(com.stockpilot.masterdata.service.SupplierApplicationService.class));
     }
 
     @Test

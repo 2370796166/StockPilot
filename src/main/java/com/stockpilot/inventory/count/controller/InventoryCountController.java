@@ -19,6 +19,22 @@ import org.springframework.web.bind.annotation.*;
 public class InventoryCountController {
     private final InventoryCountApplicationService inventoryCountService;
 
+    @GetMapping("/{id}/actions")
+    @PreAuthorize("hasAuthority('INVENTORY_COUNT_READ')")
+    public ApiResponse<java.util.List<com.stockpilot.shared.api.BusinessActionVO>> actions(
+            @PathVariable @Positive long id) {
+        return ApiResponse.success(inventoryCountService.actions(id));
+    }
+
+    @PostMapping("/{id}/reject")
+    @PreAuthorize("hasAuthority('INVENTORY_COUNT_APPROVE')")
+    public ApiResponse<InventoryCountVO> reject(
+            @PathVariable @Positive long id,
+            @Valid @RequestBody InventoryCountRequests.Cancel request,
+            @AuthenticationPrincipal AuthenticatedActor actor) {
+        return ApiResponse.success(inventoryCountService.reject(id, request, actor));
+    }
+
     public InventoryCountController(InventoryCountApplicationService inventoryCountService) {
         this.inventoryCountService = inventoryCountService;
     }

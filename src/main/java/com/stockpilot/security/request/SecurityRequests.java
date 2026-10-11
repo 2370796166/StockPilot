@@ -40,4 +40,9 @@ public final class SecurityRequests {
             @NotNull Integer version) {}
 
     public record Ids(@NotNull List<@Positive Long> ids) {}
+
+    public record WarehouseScope(
+            boolean allWarehouses,
+            @NotNull @Size(max = 200) List<@NotNull @Positive Long> warehouseIds,
+            @NotNull @Min(0) Integer version) {}
 }

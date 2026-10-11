@@ -25,6 +25,10 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class StockTransferApplicationService {
+    @org.springframework.beans.factory.annotation.Value(
+            "${stockpilot.business.separate-approval:false}")
+    private boolean separateApproval;
+
     @Transactional(readOnly = true)
     public com.stockpilot.inventory.vo.InventoryFrozenSourcePageVO frozenSources(
             com.stockpilot.inventory.request.InventoryDimensionQuery query, long page, long size) {
@@ -154,6 +158,9 @@ public class StockTransferApplicationService {
         StockTransferEntity current = locked(id);
         requireState(current, StockTransferStatus.SUBMITTED);
         requireVersion(current, r.version());
+        if (separateApproval && actor.userId().equals(current.getCreatedBy()))
+            throw new BusinessException(
+                    com.stockpilot.shared.api.CommonErrorCode.BUSINESS_CONFLICT, "制单人不能审核自己的单据");
         transition(current, StockTransferStatus.SUBMITTED, StockTransferStatus.APPROVED, actor);
         return get(id);
     }
@@ -299,7 +306,7 @@ public class StockTransferApplicationService {
 
     private List<StockTransferLineEntity> buildLines(
             Long id, long source, long target, List<StockTransferRequests.Line> requests) {
-        if (requests == null || requests.isEmpty())
+        if (requests == null || requests.isEmpty() || requests.size() > 200)
             throw error(StockTransferErrorCode.INVALID_LINE);
         Set<SourceDimension> sources = new HashSet<>();
         Set<TargetDimension> targets = new HashSet<>();

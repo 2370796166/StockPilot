@@ -24,6 +24,7 @@ public class WarehouseApplicationService extends MasterDataApplicationService<Wa
     // 创建、更新或启停成功后统一删除详情 Key，避免后续请求继续读取旧值或旧的空值缓存。
     @Override
     public MasterDataVO create(CreateMasterDataRequest request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         MasterDataVO value = super.create(request);
         cache.evict(ReferenceCacheKind.WAREHOUSE, value.id());
         return value;
@@ -46,6 +47,7 @@ public class WarehouseApplicationService extends MasterDataApplicationService<Wa
     // 仓库详情采用 Cache Aside：命中直接返回，未命中查询 MySQL 后回填，Redis 故障自动降级。
     @Override
     public MasterDataVO detail(long id) {
+        com.stockpilot.shared.auth.WarehouseAccess.require(id);
         ReferenceCacheLookup<MasterDataVO> cached =
                 cache.get(ReferenceCacheKind.WAREHOUSE, id, MasterDataVO.class);
         if (cached.hit()) {

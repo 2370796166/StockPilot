@@ -15,6 +15,15 @@ public class OutboxMessageEntity {
     private String lastError;
     private LocalDateTime createdAt;
     private LocalDateTime publishedAt;
+    private String claimToken;
+
+    public String getClaimToken() {
+        return claimToken;
+    }
+
+    public void setClaimToken(String value) {
+        claimToken = value;
+    }
 
     public String getMessageId() {
         return messageId;

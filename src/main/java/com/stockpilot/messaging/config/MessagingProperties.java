@@ -14,6 +14,16 @@ public class MessagingProperties {
     private int publisherBatchSize = 20;
     private int publisherMaxAttempts = 8;
     private Duration publisherConfirmTimeout = Duration.ofSeconds(5);
+    private Duration publisherLease = Duration.ofSeconds(60);
+
+    public Duration getPublisherLease() {
+        return publisherLease;
+    }
+
+    public void setPublisherLease(Duration value) {
+        publisherLease = value;
+    }
+
     private Duration publisherFixedDelay = Duration.ofSeconds(2);
     private int consumerMaxAttempts = 3;
     private Duration consumerInitialBackoff = Duration.ofMillis(500);

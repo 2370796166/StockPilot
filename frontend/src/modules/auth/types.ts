@@ -15,4 +15,6 @@ export interface CurrentUser {
   displayName: string
   roles: string[]
   authorities: string[]
+  allWarehouses?: boolean
+  warehouseIds?: number[]
 }

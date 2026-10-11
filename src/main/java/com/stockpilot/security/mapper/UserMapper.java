@@ -6,6 +6,27 @@ import java.util.List;
 import org.apache.ibatis.annotations.*;
 
 public interface UserMapper extends BaseMapper<UserEntity> {
+    @Select("SELECT all_warehouses FROM sys_user WHERE id=#{id}")
+    boolean allWarehouses(long id);
+
+    @Select("SELECT warehouse_id FROM sys_user_warehouse WHERE user_id=#{id} ORDER BY warehouse_id")
+    List<Long> warehouseIds(long id);
+
+    @Select("SELECT warehouse_scope_version FROM sys_user WHERE id=#{id}")
+    Integer warehouseScopeVersion(long id);
+
+    @Update(
+            "UPDATE sys_user SET all_warehouses=#{all},warehouse_scope_version=warehouse_scope_version+1 WHERE id=#{id} AND warehouse_scope_version=#{version}")
+    int updateWarehouseScope(
+            @Param("id") long id, @Param("all") boolean all, @Param("version") int version);
+
+    @Delete("DELETE FROM sys_user_warehouse WHERE user_id=#{id}")
+    int deleteWarehouseScope(long id);
+
+    @Insert(
+            "<script>INSERT INTO sys_user_warehouse(user_id,warehouse_id) VALUES <foreach collection='ids' item='w' separator=','>(#{id},#{w})</foreach></script>")
+    int insertWarehouseScope(@Param("id") long id, @Param("ids") List<Long> ids);
+
     @Select("SELECT * FROM sys_user WHERE username=#{username}")
     UserEntity findByUsername(String username);
 

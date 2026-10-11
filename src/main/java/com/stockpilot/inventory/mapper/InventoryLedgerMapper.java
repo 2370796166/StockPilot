@@ -12,6 +12,44 @@ import org.apache.ibatis.annotations.Select;
 public interface InventoryLedgerMapper {
     @Select(
             """
+        SELECT COUNT(*) AS ledger_count,
+          COALESCE(SUM(CASE WHEN previous_version IS NULL THEN
+            CASE WHEN balance_version_before<>0 OR before_actual_quantity<>0 OR before_available_quantity<>0 OR before_frozen_quantity<>0 THEN 1 ELSE 0 END
+            WHEN balance_version_before<>previous_version OR before_actual_quantity<>previous_actual
+              OR before_available_quantity<>previous_available OR before_frozen_quantity<>previous_frozen THEN 1 ELSE 0 END),0) AS broken_links,
+          COALESCE(SUM(change_actual_quantity),0) AS actual_change,
+          COALESCE(SUM(change_available_quantity),0) AS available_change,
+          COALESCE(SUM(change_frozen_quantity),0) AS frozen_change
+        FROM (SELECT l.*,
+          LAG(balance_version_after) OVER(ORDER BY id) AS previous_version,
+          LAG(after_actual_quantity) OVER(ORDER BY id) AS previous_actual,
+          LAG(after_available_quantity) OVER(ORDER BY id) AS previous_available,
+          LAG(after_frozen_quantity) OVER(ORDER BY id) AS previous_frozen
+          FROM inventory_ledger l WHERE warehouse_id=#{warehouseId} AND location_id=#{locationId} AND sku_id=#{skuId}) chain
+        """)
+    com.stockpilot.inventory.vo.InventoryAuditVO.LedgerSummary auditLedger(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId);
+
+    @Select(
+            "SELECT * FROM inventory_ledger WHERE warehouse_id=#{warehouseId} AND location_id=#{locationId} AND sku_id=#{skuId} ORDER BY id DESC LIMIT 1")
+    InventoryLedgerEntity latest(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId);
+
+    @Select(
+            "SELECT COUNT(*) AS ledger_count,COALESCE(SUM(change_actual_quantity),0) AS actual_change FROM inventory_ledger WHERE business_no=#{number} AND business_type=#{type} AND warehouse_id=#{warehouseId} AND location_id=#{locationId} AND sku_id=#{skuId}")
+    com.stockpilot.inventory.vo.InventoryAuditVO.DocumentQuantity documentQuantity(
+            @Param("number") String number,
+            @Param("type") String type,
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId);
+
+    @Select(
+            """
         <script>
         SELECT business_no, business_type, COUNT(*) AS ledger_count,
           SUM(change_actual_quantity) AS change_actual_quantity,

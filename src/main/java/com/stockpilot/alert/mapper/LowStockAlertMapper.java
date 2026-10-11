@@ -8,6 +8,20 @@ import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface LowStockAlertMapper {
+    @org.apache.ibatis.annotations.Select(
+            """
+        <script>SELECT id,rule_id,warehouse_id,location_id,sku_id,threshold_quantity,available_quantity,status,
+          source_message_id,source_event_name,business_no,first_triggered_at,last_evaluated_at,resolved_at FROM low_stock_alert
+        <where><if test="warehouseId != null">warehouse_id=#{warehouseId}</if>
+        <if test="status != null">AND status=#{status}</if></where> ORDER BY last_evaluated_at DESC,id DESC</script>
+        """)
+    com.baomidou.mybatisplus.core.metadata.IPage<com.stockpilot.alert.vo.SafetyStockVO.Alert> page(
+            com.baomidou.mybatisplus.extension.plugins.pagination.Page<
+                            com.stockpilot.alert.vo.SafetyStockVO.Alert>
+                    page,
+            @Param("warehouseId") Long warehouseId,
+            @Param("status") String status);
+
     @Insert(
             """
             INSERT INTO low_stock_alert

@@ -73,5 +73,14 @@ const visible = computed({
         label="原因"
       />
     </el-table>
+    <section v-if="detail?.actions?.length">
+      <h3>退回记录（最近100条）</h3>
+      <p
+        v-for="(entry, index) in detail.actions"
+        :key="index"
+      >
+        {{ entry.occurredAt }} · {{ entry.operatorName }}：{{ entry.reason }}
+      </p>
+    </section>
   </el-dialog>
 </template>

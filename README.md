@@ -1,6 +1,8 @@
 # StockPilot
 
-一个仓储与库存管理项目，支持采购入库、销售出库、调拨、盘点、库存流水和账号权限管理。后端使用 Java 17 / Spring Boot 3，前端使用 Vue 3，数据保存在 MySQL。
+一个仓储与库存管理项目，支持采购入库、销售出库、调拨、盘点、库存流水、安全库存预警、消息异常处理、库存对账和仓库数据权限。后端使用 Java 17 / Spring Boot 3，前端使用 Vue 3，数据保存在 MySQL。
+
+业务异常处理见[库存操作说明](docs/operations/inventory-operations.md)，正式部署和账号分权见[生产部署说明](docs/operations/production.md)。
 
 **只想把项目跑起来，按下面 5 步操作即可。想用 IDEA 改代码，看 [本地启动手册](docs/operations/startup.md)。**
 
@@ -161,7 +163,7 @@ npm --prefix frontend ci
 npm --prefix frontend test
 ```
 
-这些测试需要本机 JDK 17、Maven 3.9+ 和 Node.js 22。当前是单企业项目，没有多租户、批次、成本核算或仓库级数据权限；安全库存规则和消息人工补偿暂无管理页面。
+这些测试需要本机 JDK 17、Maven 3.9+ 和 Node.js 22。当前是单企业项目，已支持仓库级数据权限、安全库存管理和消息人工补偿；尚无多租户、批次及成本核算。开发模式允许同人制单和审核；正式部署使用 production 配置，要求另一名审核人员完成审核。
 
 ## 更多说明
 
@@ -173,5 +175,7 @@ npm --prefix frontend test
 | [Redis](docs/operations/redis.md) | 开启缓存和排错 |
 | [RabbitMQ](docs/operations/rabbitmq-reliability.md) | 开启消息、了解重试和死信 |
 | [AI 助手](docs/operations/ai-assistant.md) | 配置模型、查询权限和使用方法 |
+| [库存保障与异常处理](docs/operations/inventory-operations.md) | 安全库存、消息补偿、只读对账及采购/盘点退回 |
+| [生产部署与恢复](docs/operations/production.md) | 迁移与运行账号分离、仓库授权、HTTPS入口及恢复演练 |
 
 默认只允许本机访问。部署到服务器时，先更换模板中的数据库和消息密码，再配置 SSH 转发或 HTTPS 网页入口；步骤见 Docker 手册。

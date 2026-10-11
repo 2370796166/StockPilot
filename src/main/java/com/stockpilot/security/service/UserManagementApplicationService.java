@@ -27,6 +27,10 @@ public class UserManagementApplicationService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
+    @org.springframework.beans.factory.annotation.Value(
+            "${stockpilot.security.new-users-all-warehouses:true}")
+    private boolean newUsersAllWarehouses = true;
+
     public UserManagementApplicationService(
             UserMapper userMapper,
             RoleMapper roleMapper,
@@ -47,6 +51,9 @@ public class UserManagementApplicationService {
         user.setStatus(SecurityStatus.ENABLED);
         try {
             userMapper.insert(user);
+            if (!newUsersAllWarehouses
+                    && userMapper.updateWarehouseScope(user.getId(), false, 0) != 1)
+                throw new IllegalStateException("Cannot initialize restricted warehouse scope");
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(SecurityErrorCode.DUPLICATE, "用户名已存在");
         }

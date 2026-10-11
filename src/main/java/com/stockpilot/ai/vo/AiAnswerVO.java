@@ -14,7 +14,12 @@ public record AiAnswerVO(
         this(status, answer, results, queriedAt, null);
     }
 
-    public record Candidate(String kind, String keyword, Long id, String code, String name) {}
+    public record Candidate(
+            String kind, String keyword, Long id, String code, String name, Long warehouseId) {
+        public Candidate(String kind, String keyword, Long id, String code, String name) {
+            this(kind, keyword, id, code, name, null);
+        }
+    }
 
     public record Source(String label, String path, String authority) {}
 

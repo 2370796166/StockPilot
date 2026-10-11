@@ -42,6 +42,33 @@ public class InventoryCountApplicationService {
     private final InventoryMutationApplicationService inventory;
     private final ApplicationEventPublisher events;
 
+    @org.springframework.beans.factory.annotation.Value(
+            "${stockpilot.business.separate-approval:false}")
+    private boolean separateApproval;
+
+    @Transactional
+    public InventoryCountVO reject(
+            long id, InventoryCountRequests.Cancel request, AuthenticatedActor actor) {
+        requireActor(actor);
+        var current = locked(id);
+        requireState(current, InventoryCountStatus.SUBMITTED);
+        requireVersion(current, request.version());
+        if (request.reason() == null
+                || request.reason().isBlank()
+                || request.reason().trim().length() > 255)
+            throw error(InventoryCountErrorCode.INVALID_LINE);
+        if (counts.appendReturn(id, request.reason().trim(), actor.userId(), actor.username()) != 1
+                || counts.returnToCounting(id, current.getVersion()) != 1)
+            throw error(InventoryCountErrorCode.PERSISTENCE_FAILURE);
+        return get(id);
+    }
+
+    @Transactional(readOnly = true)
+    public List<com.stockpilot.shared.api.BusinessActionVO> actions(long id) {
+        get(id);
+        return counts.actions(id);
+    }
+
     public InventoryCountApplicationService(
             InventoryCountMapper counts,
             InventoryCountLineMapper lines,
@@ -73,7 +100,7 @@ public class InventoryCountApplicationService {
     public InventoryCountVO get(long id) {
         var h = counts.selectById(id);
         if (h == null) throw error(InventoryCountErrorCode.NOT_FOUND);
-        return InventoryCountViewAssembler.detail(h, lines.selectByCountId(id));
+        return InventoryCountViewAssembler.detail(h, lines.selectByCountId(id), counts.actions(id));
     }
 
     // 创建静态盘点：按稳定顺序锁定所有库存维度，保存三数量与版本快照并建立维度锁。
@@ -81,6 +108,8 @@ public class InventoryCountApplicationService {
     @Transactional
     public InventoryCountVO create(InventoryCountRequests.Create r, AuthenticatedActor actor) {
         requireActor(actor);
+        if (r.dimensions() == null || r.dimensions().isEmpty() || r.dimensions().size() > 200)
+            throw error(InventoryCountErrorCode.INVALID_LINE);
         String no = r.countNo().trim().toUpperCase(Locale.ROOT);
         // 固定维度顺序后依次锁定余额，避免两个盘点任务以不同顺序竞争相同库存行。
         var dimensions =
@@ -204,6 +233,9 @@ public class InventoryCountApplicationService {
         InventoryCountEntity h = locked(id);
         requireState(h, InventoryCountStatus.SUBMITTED);
         requireVersion(h, r.version());
+        if (separateApproval && a.userId().equals(h.getCreatedBy()))
+            throw new BusinessException(
+                    com.stockpilot.shared.api.CommonErrorCode.BUSINESS_CONFLICT, "制单人不能审核自己的单据");
         requireExecutableResults(id);
         transition(h, InventoryCountStatus.SUBMITTED, InventoryCountStatus.APPROVED, a);
         return get(id);

@@ -1,6 +1,15 @@
 import type { DataStatus, PageResult } from '@/shared/types/api'
 import type { PermissionRecord, RoleRecord, UserRecord } from '@/modules/security/types'
 import { request } from '@/shared/utils/request'
+export interface WarehouseScope {
+  allWarehouses: boolean
+  warehouseIds: number[]
+  version: number
+}
+export const getWarehouseScope = (id: number) =>
+  request<WarehouseScope>({ method: 'GET', url: `/security/users/${id}/warehouses` })
+export const setWarehouseScope = (id: number, data: WarehouseScope) =>
+  request<WarehouseScope>({ method: 'PUT', url: `/security/users/${id}/warehouses`, data })
 export const pageUsers = (page: number, size: number) =>
   request<PageResult<UserRecord>>({ method: 'GET', url: '/security/users', params: { page, size } })
 export const createUser = (data: { username: string; password: string; displayName: string }) =>

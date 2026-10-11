@@ -848,6 +848,7 @@ public class AiAgentService {
                 t.worker = null;
             }
             SecurityContextHolder.clearContext();
+            com.stockpilot.shared.auth.WarehouseAccess.clear();
             org.slf4j.MDC.remove("aiRequestId");
             Thread.interrupted();
         }
@@ -966,7 +967,16 @@ public class AiAgentService {
                 databaseUserDetailsService.load(
                         t.session.actor.userId(), t.session.actor.username());
         if (auth == null) throw new AiModelAdapter.ModelFailure("FORBIDDEN");
+        var currentScope =
+                auth.getDetails() instanceof com.stockpilot.shared.auth.WarehouseScope scope
+                        ? scope
+                        : com.stockpilot.shared.auth.WarehouseScope.unrestricted();
+        if (t.executionScope != null && !t.executionScope.equals(currentScope))
+            throw new AiModelAdapter.ModelFailure("FORBIDDEN");
+        t.executionScope = currentScope;
         SecurityContextHolder.getContext().setAuthentication(auth);
+        if (auth.getDetails() instanceof com.stockpilot.shared.auth.WarehouseScope scope)
+            com.stockpilot.shared.auth.WarehouseAccess.bind(scope);
     }
 
     private synchronized void phase(TaskState t, String message, boolean model) {
@@ -1141,6 +1151,7 @@ public class AiAgentService {
     private final class TaskState {
         final String id = UUID.randomUUID().toString();
         final SessionState session;
+        com.stockpilot.shared.auth.WarehouseScope executionScope;
         String question;
         final String requestId, submittedQuestion;
         final Map<String, String> context = new LinkedHashMap<>();

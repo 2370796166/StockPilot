@@ -27,13 +27,26 @@ public final class PurchaseReceiptRequests {
             @NotBlank @Pattern(regexp = "[A-Za-z0-9_-]{2,64}") String receiptNo,
             @NotNull @Positive Long warehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Line> lines) {}
+            @NotEmpty @Size(max = 200) List<@Valid Line> lines,
+            @Positive Long supplierId) {
+        public Create(String receiptNo, Long warehouseId, String remark, List<Line> lines) {
+            this(receiptNo, warehouseId, remark, lines, null);
+        }
+    }
 
     public record Update(
             @NotNull @Min(0) Integer version,
             @NotNull @Positive Long warehouseId,
             @Size(max = 255) String remark,
-            @NotEmpty List<@Valid Line> lines) {}
+            @NotEmpty @Size(max = 200) List<@Valid Line> lines,
+            @Positive Long supplierId) {
+        public Update(Integer version, Long warehouseId, String remark, List<Line> lines) {
+            this(version, warehouseId, remark, lines, null);
+        }
+    }
+
+    public record Reason(
+            @NotNull @Min(0) Integer version, @NotBlank @Size(max = 255) String reason) {}
 
     public record Transition(@NotNull @Min(0) Integer version) {}
 

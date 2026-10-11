@@ -19,6 +19,16 @@ export interface DocumentSummary {
   updatedAt: string
 }
 export interface DocumentDetail extends DocumentSummary {
+  supplierId?: number | null
+  supplierName?: string | null
+  actions?: Array<{
+    action: string
+    fromStatus: string
+    toStatus: string
+    reason: string
+    operatorName: string
+    occurredAt: string
+  }>
   lines: DocumentLine[]
   submittedByName?: string
   submittedAt?: string

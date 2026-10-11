@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -27,7 +29,11 @@ class OutboxPublicationApplicationServiceTest {
         Fixture fixture = new Fixture(0, 3);
         assertTrue(fixture.service.publishNextDue());
         verify(fixture.transport).publish(fixture.message);
-        verify(fixture.outbox).markPublished(fixture.message.getMessageId());
+        verify(fixture.outbox)
+                .markPublished(fixture.message.getMessageId(), fixture.message.getClaimToken());
+        var order = org.mockito.Mockito.inOrder(fixture.transactionManager, fixture.transport);
+        order.verify(fixture.transactionManager).commit(any());
+        order.verify(fixture.transport).publish(fixture.message);
         verify(fixture.failures, never())
                 .upsert(any(), any(), any(Integer.class), any(), any(), any(), any(), any());
     }
@@ -45,7 +51,8 @@ class OutboxPublicationApplicationServiceTest {
                         eq(fixture.message.getMessageId()),
                         eq("PENDING"),
                         any(),
-                        eq("broker unavailable"));
+                        eq("broker unavailable"),
+                        eq(fixture.message.getClaimToken()));
         verify(fixture.failures, never())
                 .upsert(any(), any(), any(Integer.class), any(), any(), any(), any(), any());
     }
@@ -62,7 +69,8 @@ class OutboxPublicationApplicationServiceTest {
                         eq(fixture.message.getMessageId()),
                         eq("FAILED"),
                         any(),
-                        eq("publisher nack"));
+                        eq("publisher nack"),
+                        eq(fixture.message.getClaimToken()));
         verify(fixture.failures)
                 .upsert(
                         fixture.message.getMessageId(),
@@ -78,9 +86,11 @@ class OutboxPublicationApplicationServiceTest {
     @Test
     void confirmedMessagePersistenceFailureIsNotSwallowedAsAMqRetry() {
         Fixture fixture = new Fixture(0, 3);
-        when(fixture.outbox.markPublished(fixture.message.getMessageId())).thenReturn(0);
+        when(fixture.outbox.markPublished(eq(fixture.message.getMessageId()), anyString()))
+                .thenReturn(0);
         assertThrows(IllegalStateException.class, fixture.service::publishNextDue);
-        verify(fixture.outbox, never()).markFailure(any(), any(), any(), any());
+        verify(fixture.outbox, never()).markFailure(any(), any(), any(), any(), any());
+        verify(fixture.transactionManager).rollback(any());
     }
 
     @Test
@@ -89,7 +99,8 @@ class OutboxPublicationApplicationServiceTest {
         when(fixture.traces.insert(any(), any(), any(), eq("PUBLISHED"), any(), anyInt(), any()))
                 .thenReturn(0);
         assertThrows(IllegalStateException.class, fixture.service::publishNextDue);
-        verify(fixture.outbox, never()).markFailure(any(), any(), any(), any());
+        verify(fixture.outbox, never()).markFailure(any(), any(), any(), any(), any());
+        verify(fixture.transactionManager).rollback(any());
     }
 
     private static final class Fixture {
@@ -98,20 +109,28 @@ class OutboxPublicationApplicationServiceTest {
         final FailureRecordMapper failures = mock(FailureRecordMapper.class);
         final OutboxTransport transport = mock(OutboxTransport.class);
         final OutboxMessageEntity message = message();
+        final org.springframework.transaction.PlatformTransactionManager transactionManager =
+                mock(org.springframework.transaction.PlatformTransactionManager.class);
         final OutboxPublicationApplicationService service;
 
         Fixture(int attempts, int maximum) {
             message.setPublishAttempts(attempts);
             when(outbox.selectNextDueForUpdate()).thenReturn(message);
-            when(outbox.markAttempt(message.getMessageId())).thenReturn(1);
-            when(outbox.markPublished(message.getMessageId())).thenReturn(1);
-            when(outbox.markFailure(any(), any(), any(), any())).thenReturn(1);
+            when(outbox.markAttempt(eq(message.getMessageId()), anyString(), anyLong()))
+                    .thenReturn(1);
+            when(outbox.markPublished(eq(message.getMessageId()), anyString())).thenReturn(1);
+            when(outbox.markFailure(any(), any(), any(), any(), any())).thenReturn(1);
+            when(failures.upsert(any(), any(), anyInt(), any(), any(), any(), any(), any()))
+                    .thenReturn(1);
+            when(transactionManager.getTransaction(any()))
+                    .thenReturn(
+                            new org.springframework.transaction.support.SimpleTransactionStatus());
             when(traces.insert(any(), any(), any(), any(), any(), anyInt(), any())).thenReturn(1);
             MessagingProperties properties = new MessagingProperties();
             properties.setPublisherMaxAttempts(maximum);
             service =
                     new OutboxPublicationApplicationService(
-                            outbox, traces, failures, transport, properties);
+                            outbox, traces, failures, transport, properties, transactionManager);
         }
 
         private static OutboxMessageEntity message() {

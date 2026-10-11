@@ -12,8 +12,12 @@ import org.springframework.context.annotation.Configuration;
 @MapperScan("com.stockpilot.**.mapper")
 public class MybatisPlusConfig {
     @Bean
-    public MybatisPlusInterceptor mybatisPlusInterceptor() {
+    public MybatisPlusInterceptor mybatisPlusInterceptor(
+            org.springframework.beans.factory.ObjectProvider<
+                            com.baomidou.mybatisplus.extension.plugins.inner.InnerInterceptor>
+                    scopeInterceptors) {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        scopeInterceptors.orderedStream().forEach(interceptor::addInnerInterceptor);
         interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
         return interceptor;

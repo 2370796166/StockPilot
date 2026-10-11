@@ -27,6 +27,10 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class SalesOutboundApplicationService {
+    @org.springframework.beans.factory.annotation.Value(
+            "${stockpilot.business.separate-approval:false}")
+    private boolean separateApproval;
+
     @Transactional(readOnly = true, timeout = 10)
     public PageResult<SalesInventoryOrderVO> inventoryOrders(
             com.stockpilot.inventory.request.InventoryDimensionQuery query,
@@ -176,6 +180,9 @@ public class SalesOutboundApplicationService {
         SalesOutboundEntity current = requireLocked(id);
         requireState(current, SalesOutboundStatus.RESERVED);
         requireVersion(current, request.version());
+        if (separateApproval && actor.userId().equals(current.getCreatedBy()))
+            throw new BusinessException(
+                    com.stockpilot.shared.api.CommonErrorCode.BUSINESS_CONFLICT, "制单人不能审核自己的单据");
         if (outbounds.approve(id, request.version(), actor.userId(), actor.username()) != 1) {
             throw error(SalesOutboundErrorCode.CONCURRENT_MODIFICATION);
         }
@@ -287,6 +294,7 @@ public class SalesOutboundApplicationService {
     private List<SalesOutboundLineEntity> validateAndBuildLines(
             Long outboundId, long warehouseId, List<SalesOutboundRequests.Line> requests) {
         if (requests == null || requests.isEmpty()) throw error(SalesOutboundErrorCode.EMPTY_LINES);
+        if (requests.size() > 200) throw error(SalesOutboundErrorCode.INVALID_LINE);
         Set<Dimension> dimensions = new HashSet<>();
         List<SalesOutboundLineEntity> result = new ArrayList<>(requests.size());
         int lineNo = 1;

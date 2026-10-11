@@ -22,6 +22,24 @@ public class PurchaseReceiptEntity {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Integer version;
+    private Long supplierId;
+    private String supplierName;
+
+    public Long getSupplierId() {
+        return supplierId;
+    }
+
+    public void setSupplierId(Long value) {
+        supplierId = value;
+    }
+
+    public String getSupplierName() {
+        return supplierName;
+    }
+
+    public void setSupplierName(String value) {
+        supplierName = value;
+    }
 
     public Long getId() {
         return id;

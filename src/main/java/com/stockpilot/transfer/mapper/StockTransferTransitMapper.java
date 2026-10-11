@@ -5,6 +5,23 @@ import java.util.List;
 import org.apache.ibatis.annotations.*;
 
 public interface StockTransferTransitMapper {
+    @Select(
+            """
+        SELECT o.transfer_no,o.status AS order_status,l.source_warehouse_id,l.source_location_id,
+          l.target_warehouse_id,l.target_location_id,l.sku_id,l.quantity,t.outbound_quantity,
+          t.in_transit_quantity,t.received_quantity,t.status AS transit_status
+        FROM stock_transfer_order o JOIN stock_transfer_line l ON l.transfer_id=o.id
+          LEFT JOIN stock_transfer_transit t ON t.transfer_line_id=l.id
+        WHERE o.status IN ('OUTBOUND_COMPLETED','IN_TRANSIT','COMPLETED') AND l.sku_id=#{skuId}
+          AND ((l.source_warehouse_id=#{warehouseId} AND l.source_location_id=#{locationId})
+            OR (l.target_warehouse_id=#{warehouseId} AND l.target_location_id=#{locationId}))
+        ORDER BY o.id,l.id LIMIT 201
+        """)
+    List<com.stockpilot.transfer.vo.StockTransferAuditVO> audit(
+            @Param("warehouseId") long warehouseId,
+            @Param("locationId") long locationId,
+            @Param("skuId") long skuId);
+
     @Insert(
             """
  INSERT INTO stock_transfer_transit(transfer_id,transfer_line_id,outbound_quantity,in_transit_quantity,

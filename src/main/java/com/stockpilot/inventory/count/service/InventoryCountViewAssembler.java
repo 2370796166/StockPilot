@@ -10,7 +10,9 @@ final class InventoryCountViewAssembler {
     private InventoryCountViewAssembler() {}
 
     static InventoryCountVO detail(
-            InventoryCountEntity count, List<InventoryCountLineEntity> countLines) {
+            InventoryCountEntity count,
+            List<InventoryCountLineEntity> countLines,
+            List<com.stockpilot.shared.api.BusinessActionVO> actions) {
         return new InventoryCountVO(
                 count.getId(),
                 count.getCountNo(),
@@ -39,7 +41,8 @@ final class InventoryCountViewAssembler {
                                                 line.getCountedQuantity(),
                                                 line.getDifferenceQuantity(),
                                                 line.getReason()))
-                        .toList());
+                        .toList(),
+                actions);
     }
 
     static InventoryCountSummaryVO summary(InventoryCountEntity count) {

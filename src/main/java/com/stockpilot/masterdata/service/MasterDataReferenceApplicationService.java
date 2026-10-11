@@ -27,6 +27,7 @@ public class MasterDataReferenceApplicationService {
     // 校验可用于新库存业务的完整维度：仓库、库位和 SKU 必须存在且启用，库位还必须属于指定仓库。
     // 校验直接读取 MySQL，不依赖可能短暂陈旧的 Redis 缓存。
     public void requireEnabledInventoryDimension(long warehouseId, long locationId, long skuId) {
+        com.stockpilot.shared.auth.WarehouseAccess.require(warehouseId);
         WarehouseEntity warehouse = warehouses.selectById(warehouseId);
         if (warehouse == null) {
             throw new BusinessException(MasterDataErrorCode.WAREHOUSE_NOT_FOUND);

@@ -39,6 +39,25 @@ public class SecurityConfig {
                                                 "/swagger-ui/**",
                                                 "/swagger-ui.html")
                                         .permitAll()
+                                        .requestMatchers("/api/security/users/*/warehouses")
+                                        .hasAuthority("SECURITY_GRANT")
+                                        .requestMatchers(HttpMethod.GET, "/api/safety-stock/**")
+                                        .hasAuthority("SAFETY_STOCK_READ")
+                                        .requestMatchers("/api/safety-stock/**")
+                                        .hasAuthority("SAFETY_STOCK_WRITE")
+                                        .requestMatchers(
+                                                HttpMethod.GET, "/api/messages/failures/**")
+                                        .hasAuthority("MESSAGE_FAILURE_READ")
+                                        .requestMatchers("/api/messages/failures/**")
+                                        .hasAuthority("MESSAGE_FAILURE_WRITE")
+                                        .requestMatchers(
+                                                HttpMethod.GET,
+                                                "/api/operations/**",
+                                                "/api/management/**")
+                                        .hasAuthority("OPERATIONS_READ")
+                                        .requestMatchers(
+                                                HttpMethod.GET, "/api/inventory/reconciliation")
+                                        .hasAuthority("INVENTORY_RECONCILE")
                                         .requestMatchers(HttpMethod.GET, "/api/auth/me")
                                         .authenticated()
                                         .requestMatchers(HttpMethod.POST, "/api/ai/questions")
@@ -83,7 +102,8 @@ public class SecurityConfig {
                                         .hasAuthority("PURCHASE_RECEIPT_READ")
                                         .requestMatchers(
                                                 HttpMethod.POST,
-                                                "/api/inbound/purchase-receipts/*/approve")
+                                                "/api/inbound/purchase-receipts/*/approve",
+                                                "/api/inbound/purchase-receipts/*/reject")
                                         .hasAuthority("PURCHASE_RECEIPT_APPROVE")
                                         .requestMatchers(
                                                 HttpMethod.POST,
@@ -122,7 +142,9 @@ public class SecurityConfig {
                                         .requestMatchers(HttpMethod.GET, "/api/inventory-counts/**")
                                         .hasAuthority("INVENTORY_COUNT_READ")
                                         .requestMatchers(
-                                                HttpMethod.POST, "/api/inventory-counts/*/approve")
+                                                HttpMethod.POST,
+                                                "/api/inventory-counts/*/approve",
+                                                "/api/inventory-counts/*/reject")
                                         .hasAuthority("INVENTORY_COUNT_APPROVE")
                                         .requestMatchers(
                                                 HttpMethod.POST, "/api/inventory-counts/*/adjust")

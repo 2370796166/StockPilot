@@ -27,6 +27,7 @@ public class AuthenticationApplicationService implements ApplicationRunner {
     private final AuditService auditService;
     private final SecurityProperties securityProperties;
     private final String dummyPasswordHash;
+    private final LoginAttemptLimiter loginAttemptLimiter;
 
     public AuthenticationApplicationService(
             UserMapper userMapper,
@@ -34,13 +35,15 @@ public class AuthenticationApplicationService implements ApplicationRunner {
             PasswordEncoder passwordEncoder,
             JwtService jwtService,
             AuditService auditService,
-            SecurityProperties securityProperties) {
+            SecurityProperties securityProperties,
+            LoginAttemptLimiter loginAttemptLimiter) {
         this.userMapper = userMapper;
         this.roleMapper = roleMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.auditService = auditService;
         this.securityProperties = securityProperties;
+        this.loginAttemptLimiter = loginAttemptLimiter;
         dummyPasswordHash = passwordEncoder.encode("stockpilot-login-timing-placeholder");
     }
 
@@ -48,6 +51,7 @@ public class AuthenticationApplicationService implements ApplicationRunner {
     // 只有启用用户且 BCrypt 密码匹配时才签发 JWT；成功与失败结果都会写入安全审计。
     public SecurityVO.Token login(SecurityRequests.Login r) {
         String username = r.username().trim();
+        loginAttemptLimiter.acquire(username);
         UserEntity u = userMapper.findByUsername(username);
         if (u == null) {
             passwordEncoder.matches(r.password(), dummyPasswordHash);
@@ -83,7 +87,9 @@ public class AuthenticationApplicationService implements ApplicationRunner {
                 u.getUsername(),
                 u.getDisplayName(),
                 userMapper.findRoleCodes(u.getId()),
-                userMapper.findPermissionCodes(u.getId()));
+                userMapper.findPermissionCodes(u.getId()),
+                userMapper.allWarehouses(u.getId()),
+                userMapper.warehouseIds(u.getId()));
     }
 
     // 应用启动时可按环境变量创建首个管理员；凭据不写入配置文件，也不会覆盖已经存在的用户。

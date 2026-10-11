@@ -34,7 +34,7 @@ public class LowStockEventApplicationService {
             if (rule == null) continue;
             InventoryBalanceVO balance =
                     inventory
-                            .findBalance(
+                            .findBalanceForEvaluation(
                                     command.warehouseId(),
                                     dimension.locationId(),
                                     dimension.skuId())

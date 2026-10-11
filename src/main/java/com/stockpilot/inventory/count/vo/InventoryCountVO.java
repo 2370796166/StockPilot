@@ -18,7 +18,8 @@ public record InventoryCountVO(
         String cancelledByName,
         LocalDateTime cancelledAt,
         String cancelReason,
-        List<Line> lines) {
+        List<Line> lines,
+        List<com.stockpilot.shared.api.BusinessActionVO> actions) {
     public record Line(
             Long id,
             Integer lineNo,

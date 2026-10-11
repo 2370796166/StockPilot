@@ -4,5 +4,6 @@ public enum PurchaseReceiptStatus {
     DRAFT,
     SUBMITTED,
     APPROVED,
-    COMPLETED
+    COMPLETED,
+    CANCELLED
 }

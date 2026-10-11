@@ -26,6 +26,7 @@ export interface CountSummary {
 }
 
 export interface CountDetail extends CountSummary {
+  actions?: Array<{ action: string; reason: string; operatorName: string; occurredAt: string }>
   cancelledBy: number | null
   cancelledByName: string | null
   cancelledAt: string | null

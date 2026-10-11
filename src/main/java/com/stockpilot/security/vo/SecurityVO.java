@@ -9,12 +9,25 @@ public final class SecurityVO {
 
     public record Token(String accessToken, String tokenType, Instant expiresAt) {}
 
+    public record WarehouseScope(boolean allWarehouses, List<Long> warehouseIds, int version) {}
+
     public record CurrentUser(
             Long userId,
             String username,
             String displayName,
             List<String> roles,
-            List<String> authorities) {}
+            List<String> authorities,
+            boolean allWarehouses,
+            List<Long> warehouseIds) {
+        public CurrentUser(
+                Long userId,
+                String username,
+                String displayName,
+                List<String> roles,
+                List<String> authorities) {
+            this(userId, username, displayName, roles, authorities, true, List.of());
+        }
+    }
 
     public record User(
             Long id,

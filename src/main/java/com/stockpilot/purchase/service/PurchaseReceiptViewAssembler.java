@@ -10,7 +10,9 @@ final class PurchaseReceiptViewAssembler {
     private PurchaseReceiptViewAssembler() {}
 
     static PurchaseReceiptVO detail(
-            PurchaseReceiptEntity receipt, List<PurchaseReceiptLineEntity> receiptLines) {
+            PurchaseReceiptEntity receipt,
+            List<PurchaseReceiptLineEntity> receiptLines,
+            List<com.stockpilot.shared.api.BusinessActionVO> actions) {
         return new PurchaseReceiptVO(
                 receipt.getId(),
                 receipt.getReceiptNo(),
@@ -40,7 +42,10 @@ final class PurchaseReceiptViewAssembler {
                                                 line.getLocationId(),
                                                 line.getSkuId(),
                                                 line.getQuantity()))
-                        .toList());
+                        .toList(),
+                receipt.getSupplierId(),
+                receipt.getSupplierName(),
+                actions);
     }
 
     static PurchaseReceiptSummaryVO summary(PurchaseReceiptEntity receipt) {

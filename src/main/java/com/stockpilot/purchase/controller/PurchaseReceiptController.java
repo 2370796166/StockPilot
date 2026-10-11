@@ -27,6 +27,24 @@ import org.springframework.web.bind.annotation.RestController;
 public class PurchaseReceiptController {
     private final PurchaseReceiptApplicationService purchaseReceiptService;
 
+    @PreAuthorize("hasAuthority('PURCHASE_RECEIPT_WRITE')")
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<PurchaseReceiptVO> cancel(
+            @PathVariable @Positive long id,
+            @Valid @RequestBody PurchaseReceiptRequests.Reason request,
+            @AuthenticationPrincipal AuthenticatedActor actor) {
+        return ApiResponse.success(purchaseReceiptService.cancel(id, request, actor));
+    }
+
+    @PreAuthorize("hasAuthority('PURCHASE_RECEIPT_APPROVE')")
+    @PostMapping("/{id}/reject")
+    public ApiResponse<PurchaseReceiptVO> reject(
+            @PathVariable @Positive long id,
+            @Valid @RequestBody PurchaseReceiptRequests.Reason request,
+            @AuthenticationPrincipal AuthenticatedActor actor) {
+        return ApiResponse.success(purchaseReceiptService.reject(id, request, actor));
+    }
+
     public PurchaseReceiptController(PurchaseReceiptApplicationService purchaseReceiptService) {
         this.purchaseReceiptService = purchaseReceiptService;
     }

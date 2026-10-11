@@ -90,12 +90,14 @@ const query = reactive<{ page: number; size: number; no: string; warehouseId?: n
   size: 20,
   no: sourceFilters().businessNo,
 })
-const form = reactive<{ no: string; warehouseId?: number; remark: string; lines: DocumentLine[] }>({
-  no: '',
-  warehouseId: undefined,
-  remark: '',
-  lines: [],
-})
+const form = reactive<{ no: string; warehouseId?: number; supplierId?: number; remark: string; lines: DocumentLine[] }>(
+  {
+    no: '',
+    warehouseId: undefined,
+    remark: '',
+    lines: [],
+  },
+)
 const rules: FormRules = {
   no: [
     { required: true, message: `请输入${noLabel.value}`, trigger: 'blur' },
@@ -105,6 +107,7 @@ const rules: FormRules = {
   remark: [{ max: 255, message: '备注不能超过 255 个字符', trigger: 'blur' }],
 }
 const salesStatuses: DocumentStatus[] = ['DRAFT', 'RESERVED', 'APPROVED', 'COMPLETED', 'CANCELLED']
+const purchaseStatuses: DocumentStatus[] = ['DRAFT', 'SUBMITTED', 'APPROVED', 'COMPLETED', 'CANCELLED']
 const listRequest = useLatestRequest()
 async function load() {
   const sequence = listRequest.next()
@@ -142,6 +145,7 @@ function openCreate() {
   Object.assign(form, {
     no: '',
     warehouseId: undefined,
+    supplierId: undefined,
     remark: '',
     lines: [{ locationId: 0, skuId: 0, quantity: '1' }],
   })
@@ -156,6 +160,7 @@ async function openEdit(row: DocumentSummary) {
     Object.assign(form, {
       no: item.no,
       warehouseId: item.warehouseId,
+      supplierId: item.supplierId || undefined,
       remark: item.remark || '',
       lines: item.lines.map((line) => ({ ...line })),
     })
@@ -188,6 +193,7 @@ async function submit() {
       await updateDocument(props.kind, editing.value.id, {
         version: editing.value.version,
         warehouseId: form.warehouseId,
+        ...(isPurchase.value ? { supplierId: form.supplierId } : {}),
         remark: form.remark.trim(),
         lines: form.lines,
       })
@@ -195,6 +201,7 @@ async function submit() {
       await createDocument(props.kind, {
         no: form.no.trim(),
         warehouseId: form.warehouseId,
+        ...(isPurchase.value ? { supplierId: form.supplierId } : {}),
         remark: form.remark.trim(),
         lines: form.lines,
       })
@@ -226,6 +233,10 @@ function actions(row: DocumentSummary) {
     })
   if (!isPurchase.value && ['RESERVED', 'APPROVED'].includes(row.status))
     list.push({ action: 'cancel', label: '取消并释放', authority: permissions.value.write, version: false })
+  if (isPurchase.value && ['DRAFT', 'SUBMITTED', 'APPROVED'].includes(row.status))
+    list.push({ action: 'cancel', label: '取消采购', authority: permissions.value.write, version: true })
+  if (isPurchase.value && row.status === 'SUBMITTED')
+    list.push({ action: 'reject', label: '退回修改', authority: permissions.value.approve, version: true })
   return list.filter((item) => auth.can(item.authority))
 }
 // 库存相关状态动作执行前二次确认，并以 actionId 阻止用户重复点击同一关键操作。
@@ -233,10 +244,18 @@ async function execute(row: DocumentSummary, item: ReturnType<typeof actions>[nu
   if (actionId.value) return
   actionId.value = row.id
   try {
-    await ElMessageBox.confirm(`确认执行“${item.label}”吗？该操作将按后端状态机处理库存。`, '关键操作确认', {
-      type: 'warning',
-    })
-    await transitionDocument(props.kind, row.id, item.action, item.version ? row.version : undefined)
+    let reason: string | undefined
+    if (isPurchase.value && ['cancel', 'reject'].includes(item.action)) {
+      const response = await ElMessageBox.prompt('请填写原因，原始单据和操作证据会保留。', item.label, {
+        type: 'warning',
+        inputValidator: (value: string) => (!!value?.trim() && value.trim().length <= 255) || '请填写最多255字的原因',
+      })
+      reason = response.value.trim()
+    } else
+      await ElMessageBox.confirm(`确认执行“${item.label}”吗？该操作将按后端状态机处理库存。`, '关键操作确认', {
+        type: 'warning',
+      })
+    await transitionDocument(props.kind, row.id, item.action, item.version ? row.version : undefined, reason)
     ElMessage.success(`${item.label}成功`)
     await load()
   } catch {
@@ -280,15 +299,13 @@ const LineTableColumn = TableColumn<DocumentLine>
           ><RemoteMasterDataSelect
             v-model="query.warehouseId"
             resource="warehouses" /></el-form-item
-        ><el-form-item
-          v-if="!isPurchase"
-          label="状态"
+        ><el-form-item label="状态"
           ><el-select
             v-model="query.status"
             clearable
             style="width: 130px"
             ><el-option
-              v-for="status in salesStatuses"
+              v-for="status in isPurchase ? purchaseStatuses : salesStatuses"
               :key="status"
               :label="status"
               :value="status" /></el-select></el-form-item
@@ -397,6 +414,12 @@ const LineTableColumn = TableColumn<DocumentLine>
               ><el-input
                 v-model="form.remark"
                 maxlength="255" /></el-form-item></el-col></el-row
+        ><el-form-item
+          v-if="isPurchase"
+          label="供应商（可选）"
+          ><RemoteMasterDataSelect
+            v-model="form.supplierId"
+            resource="suppliers" /></el-form-item
         ><DocumentLinesEditor
           v-model="form.lines"
           :warehouse-id="form.warehouseId" /></el-form
@@ -428,6 +451,10 @@ const LineTableColumn = TableColumn<DocumentLine>
               :id="detail.warehouseId" /></el-descriptions-item
           ><el-descriptions-item label="状态"><BusinessStatusTag :status="detail.status" /></el-descriptions-item
           ><el-descriptions-item
+            v-if="isPurchase"
+            label="供应商"
+            >{{ detail.supplierName || '未关联供应商' }}</el-descriptions-item
+          ><el-descriptions-item
             label="备注"
             :span="3"
             >{{ detail.remark || '—' }}</el-descriptions-item
@@ -451,7 +478,19 @@ const LineTableColumn = TableColumn<DocumentLine>
                 :id="scope.row.skuId" /></template></LineTableColumn
           ><LineTableColumn
             prop="quantity"
-            label="数量" /></el-table></template
-    ></el-dialog>
+            label="数量"
+        /></el-table>
+        <section v-if="detail.actions?.length">
+          <h3>退回与取消记录（最近100条）</h3>
+          <p
+            v-for="(entry, index) in detail.actions"
+            :key="index"
+          >
+            {{ entry.occurredAt }} · {{ entry.operatorName }} ·
+            {{ entry.action === 'RETURN' ? '退回修改' : '取消采购' }}：{{ entry.reason }}
+          </p>
+        </section></template
+      ></el-dialog
+    >
   </div>
 </template>

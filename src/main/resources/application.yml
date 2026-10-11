@@ -1,6 +1,21 @@
 server:
   port: ${SERVER_PORT:8085}
 
+management:
+  health:
+    redis:
+      enabled: ${CACHE_ENABLED:false}
+    rabbit:
+      enabled: ${RABBITMQ_ENABLED:false}
+  endpoints:
+    web:
+      base-path: /api/management
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
 spring:
   jackson:
     deserialization:
@@ -58,6 +73,8 @@ logging:
     com.stockpilot: INFO
 
 stockpilot:
+  business:
+    separate-approval: ${BUSINESS_SEPARATE_APPROVAL:false}
   ai:
     enabled: ${AI_ENABLED:false}
     provider: ${AI_PROVIDER:CUSTOM}
@@ -97,6 +114,7 @@ stockpilot:
     publisher-batch-size: ${RABBITMQ_PUBLISHER_BATCH_SIZE:20}
     publisher-max-attempts: ${RABBITMQ_PUBLISHER_MAX_ATTEMPTS:8}
     publisher-confirm-timeout: ${RABBITMQ_CONFIRM_TIMEOUT:5s}
+    publisher-lease: ${RABBITMQ_PUBLISHER_LEASE:60s}
     publisher-fixed-delay: ${RABBITMQ_PUBLISHER_FIXED_DELAY:2000}
     consumer-max-attempts: ${RABBITMQ_CONSUMER_MAX_ATTEMPTS:3}
     consumer-initial-backoff: ${RABBITMQ_CONSUMER_INITIAL_BACKOFF:500ms}

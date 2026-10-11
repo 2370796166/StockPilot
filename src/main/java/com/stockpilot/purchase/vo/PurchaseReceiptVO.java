@@ -25,7 +25,10 @@ public record PurchaseReceiptVO(
         Integer version,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        List<Line> lines) {
+        List<Line> lines,
+        Long supplierId,
+        String supplierName,
+        List<com.stockpilot.shared.api.BusinessActionVO> actions) {
 
     public record Line(Long id, Integer lineNo, Long locationId, Long skuId, BigDecimal quantity) {}
 }
