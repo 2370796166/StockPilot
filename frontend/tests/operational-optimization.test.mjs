@@ -3,6 +3,38 @@ import assert from 'node:assert/strict'
 import { deferred, flush, mount } from './component-harness.mjs'
 import { moduleLoader } from './module-harness.mjs'
 
+test('new and reset passwords are checked in bytes before any write', async () => {
+  const writes = []
+  const c = mount(
+    'modules/security/views/UserView.vue',
+    {},
+    {
+      '@/modules/security/api': {
+        pageUsers: async () => ({ records: [], total: 0 }),
+        createUser: async (data) => {
+          writes.push(data)
+        },
+        updateUser: async (id, data) => {
+          writes.push(data)
+        },
+      },
+    },
+  )
+  c.state.openCreate()
+  Object.assign(c.state.form, { username: 'test-user', displayName: '用户', password: '密'.repeat(25) })
+  await c.state.save()
+  assert.equal(writes.length, 0)
+  c.state.form.password = '密'.repeat(24)
+  await c.state.save()
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].password, '密'.repeat(24))
+  c.state.edit({ id: 3, username: 'test-user', displayName: '用户', version: 0 })
+  c.state.form.newPassword = '😀'.repeat(19)
+  await c.state.save()
+  assert.equal(writes.length, 1)
+  c.unmount()
+})
+
 test('safety stock saves maximum decimal threshold as text and blocks repeat writes', async () => {
   const pending = deferred(),
     calls = []

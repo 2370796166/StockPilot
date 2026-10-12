@@ -75,7 +75,354 @@ class OptimizationsMySqlIT {
     @Autowired AiToolService tools;
     @Autowired org.springframework.transaction.support.TransactionTemplate transactions;
     @Autowired com.stockpilot.alert.service.LowStockEventApplicationService lowStockEvents;
+
+    @Autowired
+    com.stockpilot.inventory.service.InventoryMutationApplicationService inventoryMutations;
+
+    @Autowired com.stockpilot.messaging.service.DeadLetterApplicationService deadLetters;
     private String admin;
+
+    @Test
+    void malformedDeadLetterHeadersRemainDurablyRecordable() {
+        String id = UUID.randomUUID().toString();
+        var headers = new org.springframework.amqp.core.MessageProperties();
+        headers.setMessageId(id);
+        headers.setHeader("eventName", "x".repeat(101));
+        headers.setHeader("businessNo", "y".repeat(65));
+        headers.setHeader("eventVersion", -1);
+        headers.setHeader("x-exception-message", "😀".repeat(2001));
+        String raw = "not valid JSON";
+        deadLetters.record(raw, headers);
+        var failure =
+                jdbc.queryForMap(
+                        "SELECT event_name,business_no,event_version,payload_json,failure_reason FROM async_failure_record WHERE message_id=?",
+                        id);
+        assertEquals("x".repeat(100), failure.get("event_name"));
+        assertEquals("y".repeat(64), failure.get("business_no"));
+        assertEquals(1, ((Number) failure.get("event_version")).intValue());
+        assertTrue(failure.get("payload_json").toString().contains(raw));
+        assertEquals("😀".repeat(2000), failure.get("failure_reason"));
+        assertEquals(
+                "😀".repeat(1000),
+                jdbc.queryForObject(
+                        "SELECT detail FROM async_message_trace WHERE message_id=? AND stage='DEAD_LETTERED'",
+                        String.class,
+                        id));
+    }
+
+    @Test
+    void passwordByteBoundaryIsValidatedBeforeWritingUsers() {
+        for (var password : List.of("a".repeat(73), "密".repeat(25))) {
+            String username = no("long").toLowerCase();
+            call(
+                    HttpMethod.POST,
+                    "/api/security/users",
+                    Map.of("username", username, "password", password, "displayName", "密码边界"),
+                    admin,
+                    400);
+            assertEquals(
+                    0,
+                    jdbc.queryForObject(
+                            "SELECT COUNT(*) FROM sys_user WHERE username=?",
+                            Integer.class,
+                            username));
+        }
+        var u =
+                call(
+                        HttpMethod.POST,
+                        "/api/security/users",
+                        Map.of(
+                                "username",
+                                no("bound").toLowerCase(),
+                                "password",
+                                "密".repeat(24),
+                                "displayName",
+                                "密码边界"),
+                        admin,
+                        200);
+        long id = u.path("id").asLong();
+        String original =
+                jdbc.queryForObject(
+                        "SELECT password_hash FROM sys_user WHERE id=?", String.class, id);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + id,
+                Map.of("displayName", "不应保存", "newPassword", "密".repeat(25), "version", 0),
+                admin,
+                400);
+        assertEquals(
+                original,
+                jdbc.queryForObject(
+                        "SELECT password_hash FROM sys_user WHERE id=?", String.class, id));
+        assertFalse(login(u.path("username").asText(), "密".repeat(24)).isBlank());
+    }
+
+    @Test
+    void internalChangeUsesCurrentBalanceAfterAnEarlierSnapshot() throws Exception {
+        var d = dimension();
+        receive(d, "10");
+        String businessNo = no("CHANGE");
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            transactions.executeWithoutResult(
+                    status -> {
+                        assertEquals(
+                                new BigDecimal("10.0000"),
+                                jdbc.queryForObject(
+                                        "SELECT actual_quantity FROM inventory_balance WHERE warehouse_id=?",
+                                        BigDecimal.class,
+                                        d.w));
+                        try {
+                            executor.submit(() -> receive(d, "5")).get(20, TimeUnit.SECONDS);
+                        } catch (Exception e) {
+                            throw new IllegalStateException(e);
+                        }
+                        inventoryMutations.applyChange(
+                                new com.stockpilot.inventory.service.InventoryChangeCommand(
+                                        d.w,
+                                        d.l,
+                                        d.s,
+                                        2,
+                                        com.stockpilot.inventory.domain.InventoryBusinessType
+                                                .PURCHASE_RECEIPT,
+                                        businessNo,
+                                        com.stockpilot.inventory.domain.InventoryQuantityChange
+                                                .receipt(new BigDecimal("5")),
+                                        MAKER.userId(),
+                                        MAKER.username()));
+                    });
+        } finally {
+            executor.shutdownNow();
+        }
+        assertBalance(d, "20", "20", "0");
+        var ledger =
+                jdbc.queryForMap(
+                        "SELECT before_actual_quantity,after_actual_quantity,balance_version_before,balance_version_after FROM inventory_ledger WHERE business_no=?",
+                        businessNo);
+        assertEquals(new BigDecimal("15.0000"), ledger.get("before_actual_quantity"));
+        assertEquals(new BigDecimal("20.0000"), ledger.get("after_actual_quantity"));
+        assertEquals(2, ((Number) ledger.get("balance_version_before")).intValue());
+        assertEquals(3, ((Number) ledger.get("balance_version_after")).intValue());
+    }
+
+    @Test
+    void limitedSecurityManagerCannotChangeGlobalAccountsOrRoles() {
+        var d = dimension();
+        String name = no("limited").toLowerCase();
+        var limited =
+                call(
+                        HttpMethod.POST,
+                        "/api/security/users",
+                        Map.of(
+                                "username",
+                                name,
+                                "password",
+                                "Scope_test_20261011",
+                                "displayName",
+                                "受限管理员"),
+                        admin,
+                        200);
+        long id = limited.path("id").asLong();
+        long adminRole =
+                jdbc.queryForObject("SELECT id FROM sys_role WHERE code='ADMIN'", Long.class);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + id + "/roles",
+                Map.of("ids", List.of(adminRole)),
+                admin,
+                200);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + id + "/warehouses",
+                Map.of("allWarehouses", false, "warehouseIds", List.of(d.w), "version", 0),
+                admin,
+                200);
+        String token = login(name, "Scope_test_20261011");
+        var victim =
+                call(
+                        HttpMethod.POST,
+                        "/api/security/users",
+                        Map.of(
+                                "username",
+                                no("victim").toLowerCase(),
+                                "password",
+                                "Original_test_20261011",
+                                "displayName",
+                                "全仓账号"),
+                        admin,
+                        200);
+        long victimId = victim.path("id").asLong();
+        String hash =
+                jdbc.queryForObject(
+                        "SELECT password_hash FROM sys_user WHERE id=?", String.class, victimId);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + victimId,
+                Map.of("displayName", "越权重置", "newPassword", "Changed_test_20261011", "version", 0),
+                token,
+                403);
+        call(
+                HttpMethod.PATCH,
+                "/api/security/users/" + victimId + "/status",
+                Map.of("status", "DISABLED", "version", 0),
+                token,
+                403);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + victimId + "/roles",
+                Map.of("ids", List.of(adminRole)),
+                token,
+                403);
+        call(
+                HttpMethod.POST,
+                "/api/security/users",
+                Map.of(
+                        "username",
+                        no("escape").toLowerCase(),
+                        "password",
+                        "Scope_test_20261011",
+                        "displayName",
+                        "禁止新增"),
+                token,
+                403);
+        var role =
+                call(
+                        HttpMethod.POST,
+                        "/api/security/roles",
+                        Map.of("code", no("ROLE").toUpperCase(), "name", "原角色"),
+                        admin,
+                        200);
+        long roleId = role.path("id").asLong();
+        call(
+                HttpMethod.PUT,
+                "/api/security/roles/" + roleId,
+                Map.of("name", "越权修改", "version", 0),
+                token,
+                403);
+        call(
+                HttpMethod.PATCH,
+                "/api/security/roles/" + roleId + "/status",
+                Map.of("status", "DISABLED", "version", 0),
+                token,
+                403);
+        call(
+                HttpMethod.PUT,
+                "/api/security/roles/" + roleId + "/permissions",
+                Map.of("ids", List.of()),
+                token,
+                403);
+        call(
+                HttpMethod.POST,
+                "/api/security/roles",
+                Map.of("code", no("BAD").toUpperCase(), "name", "禁止新增"),
+                token,
+                403);
+        call(HttpMethod.GET, "/api/security/audit-logs", null, token, 403);
+        assertEquals(
+                hash,
+                jdbc.queryForObject(
+                        "SELECT password_hash FROM sys_user WHERE id=?", String.class, victimId));
+        assertEquals(
+                "ENABLED",
+                jdbc.queryForObject(
+                        "SELECT status FROM sys_user WHERE id=?", String.class, victimId));
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM sys_user_role WHERE user_id=?",
+                        Integer.class,
+                        victimId));
+        assertEquals(
+                "原角色",
+                jdbc.queryForObject("SELECT name FROM sys_role WHERE id=?", String.class, roleId));
+    }
+
+    @Test
+    void purchaseHistoryDoesNotExposeAnEarlierUnauthorizedWarehouse() {
+        var old = dimension();
+        var current = dimension();
+        var p =
+                purchases.create(
+                        new PurchaseReceiptRequests.Create(
+                                no("HISTORY"),
+                                old.w,
+                                null,
+                                List.of(
+                                        new PurchaseReceiptRequests.Line(
+                                                old.l, old.s, new BigDecimal("3")))),
+                        MAKER);
+        p = purchases.submit(p.id(), new PurchaseReceiptRequests.Transition(p.version()), MAKER);
+        p =
+                purchases.reject(
+                        p.id(), new PurchaseReceiptRequests.Reason(p.version(), "原仓退回"), REVIEWER);
+        p =
+                purchases.update(
+                        p.id(),
+                        new PurchaseReceiptRequests.Update(
+                                p.version(),
+                                current.w,
+                                null,
+                                List.of(
+                                        new PurchaseReceiptRequests.Line(
+                                                current.l, current.s, new BigDecimal("7")))),
+                        MAKER);
+        p =
+                purchases.cancel(
+                        p.id(), new PurchaseReceiptRequests.Reason(p.version(), "现仓取消"), MAKER);
+        assertEquals(2, p.actions().size());
+        String name = no("history").toLowerCase();
+        var u =
+                call(
+                        HttpMethod.POST,
+                        "/api/security/users",
+                        Map.of(
+                                "username",
+                                name,
+                                "password",
+                                "Scope_test_20261011",
+                                "displayName",
+                                "历史权限测试"),
+                        admin,
+                        200);
+        long id = u.path("id").asLong();
+        long role =
+                jdbc.queryForObject("SELECT id FROM sys_role WHERE code='OPERATOR'", Long.class);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + id + "/roles",
+                Map.of("ids", List.of(role)),
+                admin,
+                200);
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + id + "/warehouses",
+                Map.of("allWarehouses", false, "warehouseIds", List.of(current.w), "version", 0),
+                admin,
+                200);
+        String token = login(name, "Scope_test_20261011");
+        var visible =
+                call(HttpMethod.GET, "/api/inbound/purchase-receipts/" + p.id(), null, token, 200);
+        assertEquals(current.w, visible.path("warehouseId").asLong());
+        assertEquals(1, visible.path("actions").size(), "旧仓退回证据不能随单头迁移而泄露");
+        assertEquals("CANCEL", visible.path("actions").get(0).path("action").asText());
+        call(
+                HttpMethod.PUT,
+                "/api/security/users/" + id + "/warehouses",
+                Map.of(
+                        "allWarehouses",
+                        false,
+                        "warehouseIds",
+                        List.of(old.w, current.w),
+                        "version",
+                        1),
+                admin,
+                200);
+        assertEquals(
+                2,
+                call(HttpMethod.GET, "/api/inbound/purchase-receipts/" + p.id(), null, token, 200)
+                        .path("actions")
+                        .size());
+    }
 
     @Test
     void expiredClaimReplacementRejectsBothLateSuccessAndLateFailure() {

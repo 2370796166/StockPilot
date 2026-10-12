@@ -5,6 +5,9 @@ import com.stockpilot.ai.vo.AiAnswerVO.Evidence;
 
 /** Reauthorizes restored facts and candidates against the current warehouse scope. */
 final class AiWarehouseEvidencePolicy {
+    private static final com.fasterxml.jackson.databind.ObjectMapper AUDIT_JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
     private AiWarehouseEvidencePolicy() {}
 
     static boolean visible(Evidence evidence) {
@@ -34,6 +37,14 @@ final class AiWarehouseEvidencePolicy {
                 var field = fields.next();
                 var value = field.getValue();
                 String key = field.getKey();
+                if (key.equals("evidenceJson") && value.isTextual()) {
+                    try {
+                        var audit = AUDIT_JSON.readTree(value.asText());
+                        if (audit == null || !warehouseDataVisible(audit)) return false;
+                    } catch (java.io.IOException | IllegalArgumentException exception) {
+                        return false;
+                    }
+                }
                 if ((key.equals("warehouseId") || key.endsWith("WarehouseId"))
                         && value.isIntegralNumber()
                         && !scope.permits(value.asLong())) return false;

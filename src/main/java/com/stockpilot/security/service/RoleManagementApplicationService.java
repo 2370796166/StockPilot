@@ -32,6 +32,7 @@ public class RoleManagementApplicationService {
 
     @Transactional
     public SecurityVO.Role createRole(SecurityRequests.CreateRole request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         RoleEntity role = new RoleEntity();
         role.setCode(request.code());
         role.setName(request.name().trim());
@@ -48,6 +49,7 @@ public class RoleManagementApplicationService {
 
     @Transactional
     public SecurityVO.Role updateRole(long id, SecurityRequests.UpdateRole request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         RoleEntity role = requireRole(id);
         role.setName(request.name().trim());
         role.setVersion(request.version());
@@ -60,6 +62,7 @@ public class RoleManagementApplicationService {
 
     @Transactional
     public SecurityVO.Role changeStatus(long id, SecurityRequests.Status request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         RoleEntity role = requireRole(id);
         role.setStatus(request.status());
         role.setVersion(request.version());
@@ -73,6 +76,7 @@ public class RoleManagementApplicationService {
 
     @Transactional
     public SecurityVO.Role replacePermissions(long id, SecurityRequests.Ids request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         requireRole(id);
         validatePermissions(request.ids());
         roleMapper.deletePermissions(id);

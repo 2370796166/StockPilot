@@ -15,6 +15,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 权限判断基于后端当前用户接口返回的实时权限集合，用于菜单、按钮和路由守卫。
   function can(authority: string): boolean {
+    if (
+      user.value?.allWarehouses === false &&
+      [
+        'SECURITY_USER_WRITE',
+        'SECURITY_ROLE_WRITE',
+        'SECURITY_PERMISSION_WRITE',
+        'SECURITY_GRANT',
+        'AUDIT_LOG_READ',
+      ].includes(authority)
+    )
+      return false
     return user.value?.authorities.includes(authority) ?? false
   }
 

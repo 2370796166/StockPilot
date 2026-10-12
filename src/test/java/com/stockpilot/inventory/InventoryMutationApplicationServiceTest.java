@@ -108,7 +108,7 @@ class InventoryMutationApplicationServiceTest {
     void changeUsesExpectedVersionAndWritesCompleteLedger() {
         InventoryBalanceEntity current = balance(9L, "10.0000", "8.0000", "2.0000", 4);
         InventoryBalanceEntity saved = balance(9L, "10.0000", "5.0000", "5.0000", 5);
-        when(balances.selectByDimension(1, 2, 3)).thenReturn(current);
+        when(balances.selectByDimensionForUpdate(1, 2, 3)).thenReturn(current);
         when(balances.updateStateIfVersionMatches(eq(9L), eq(4), any())).thenReturn(1);
         when(ledgers.insert(any())).thenReturn(1);
         when(balances.selectById(9L)).thenReturn(saved);
@@ -157,7 +157,7 @@ class InventoryMutationApplicationServiceTest {
 
     @Test
     void staleVersionCannotWriteLedger() {
-        when(balances.selectByDimension(1, 2, 3))
+        when(balances.selectByDimensionForUpdate(1, 2, 3))
                 .thenReturn(balance(9L, "10.0000", "8.0000", "2.0000", 4));
         when(balances.updateStateIfVersionMatches(eq(9L), eq(3), any())).thenReturn(0);
 

@@ -32,8 +32,8 @@ public class DeadLetterApplicationService {
     // 处理最终死信：保留原始载荷和失败上下文，形成可查询、可人工补偿的异常记录。
     public void record(String rawJson, MessageProperties properties) {
         String messageId = validId(properties.getMessageId());
-        String eventName = header(properties, "eventName", "unknown-event");
-        String businessNo = header(properties, "businessNo", "UNKNOWN");
+        String eventName = bounded(header(properties, "eventName", "unknown-event"), 100);
+        String businessNo = bounded(header(properties, "businessNo", "UNKNOWN"), 64);
         int eventVersion = integerHeader(properties, "eventVersion", 1);
         String payload = validJson(rawJson);
         try {
@@ -46,7 +46,7 @@ public class DeadLetterApplicationService {
             // Invalid payloads still need a durable operator-visible failure record.
         }
         String reason = header(properties, "x-exception-message", "consumer retries exhausted");
-        if (reason.length() > 2000) reason = reason.substring(0, 2000);
+        reason = bounded(reason, 2000);
         failures.upsert(
                 messageId,
                 eventName,
@@ -63,7 +63,7 @@ public class DeadLetterApplicationService {
                 "DEAD_LETTERED",
                 CompletionEventConsumptionApplicationService.CONSUMER_NAME,
                 0,
-                reason.length() > 1000 ? reason.substring(0, 1000) : reason);
+                bounded(reason, 1000));
     }
 
     private String validJson(String raw) {
@@ -94,6 +94,13 @@ public class DeadLetterApplicationService {
 
     private int integerHeader(MessageProperties properties, String name, int fallback) {
         Object value = properties.getHeaders().get(name);
-        return value instanceof Number number ? number.intValue() : fallback;
+        int version = value instanceof Number number ? number.intValue() : fallback;
+        return version > 0 ? version : fallback;
+    }
+
+    private String bounded(String value, int maxCharacters) {
+        return value.codePointCount(0, value.length()) <= maxCharacters
+                ? value
+                : value.substring(0, value.offsetByCodePoints(0, maxCharacters));
     }
 }

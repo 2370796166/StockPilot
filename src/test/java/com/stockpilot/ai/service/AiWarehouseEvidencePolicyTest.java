@@ -20,6 +20,22 @@ class AiWarehouseEvidencePolicyTest {
     }
 
     @Test
+    void restoredAuditJsonCannotHideAnUnauthorizedWarehouseInAString() throws Exception {
+        var json = new ObjectMapper();
+        var data = json.createObjectNode().put("warehouseId", 3);
+        data.putArray("actions")
+                .addObject()
+                .put("evidenceJson", "{\"warehouseId\":7,\"lines\":[{\"quantity\":\"9.0000\"}]}");
+        var evidence =
+                new Evidence("get_document", "OK", "", data, List.of(), List.of(), Instant.now());
+        assertTrue(AiWarehouseEvidencePolicy.visible(evidence));
+        WarehouseAccess.bind(new WarehouseScope(false, Set.of(3L)));
+        assertFalse(AiWarehouseEvidencePolicy.visible(evidence));
+        WarehouseAccess.bind(new WarehouseScope(false, Set.of(3L, 7L)));
+        assertTrue(AiWarehouseEvidencePolicy.visible(evidence));
+    }
+
+    @Test
     void restoredMixedWarehouseFactsCannotBeReusedAfterScopeRevocation() throws Exception {
         var data =
                 new ObjectMapper()

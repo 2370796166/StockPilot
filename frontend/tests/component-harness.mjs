@@ -62,6 +62,7 @@ export function mount(file, input = {}, mocks = {}) {
     setTimeout,
     clearTimeout,
     AbortController,
+    TextEncoder,
     crypto: webcrypto,
   })
   const component = module.exports

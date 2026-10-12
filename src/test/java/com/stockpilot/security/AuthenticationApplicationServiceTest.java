@@ -215,6 +215,60 @@ class AuthenticationApplicationServiceTest {
     }
 
     @Test
+    void existingBootstrapAccountDoesNotValidateAnUnusedReplacementPassword() {
+        SecurityProperties properties =
+                new SecurityProperties(
+                        "01234567890123456789012345678901", 60, "alice", "x".repeat(73));
+        var admin = new RoleEntity();
+        admin.setStatus(SecurityStatus.ENABLED);
+        when(roles.findByCodeForUpdate("ADMIN")).thenReturn(admin);
+        when(users.findByUsername("alice")).thenReturn(user(SecurityStatus.ENABLED, "existing"));
+        var bootstrap =
+                new AuthenticationApplicationService(
+                        users,
+                        roles,
+                        encoder,
+                        new JwtService(properties),
+                        new AuditService(logs),
+                        properties,
+                        new LoginAttemptLimiter(50, 1000));
+        assertDoesNotThrow(
+                () -> bootstrap.run(mock(org.springframework.boot.ApplicationArguments.class)));
+        verify(users, never()).insert(any());
+        verify(users, never()).insertRoles(anyLong(), any());
+        verifyNoInteractions(logs);
+    }
+
+    @Test
+    void oversizedBootstrapPasswordCannotCreateAnAccount() {
+        SecurityProperties properties =
+                new SecurityProperties(
+                        "01234567890123456789012345678901", 60, "new_admin", "中".repeat(25));
+        var admin = new RoleEntity();
+        admin.setStatus(SecurityStatus.ENABLED);
+        when(roles.findByCodeForUpdate("ADMIN")).thenReturn(admin);
+        var bootstrap =
+                new AuthenticationApplicationService(
+                        users,
+                        roles,
+                        encoder,
+                        new JwtService(properties),
+                        new AuditService(logs),
+                        properties,
+                        new LoginAttemptLimiter(50, 1000));
+        var error =
+                assertThrows(
+                        BusinessException.class,
+                        () ->
+                                bootstrap.run(
+                                        mock(org.springframework.boot.ApplicationArguments.class)));
+        assertEquals(400, error.getErrorCode().httpStatus().value());
+        verify(users, never()).insert(any());
+        verify(users, never()).insertRoles(anyLong(), any());
+        verifyNoInteractions(logs);
+    }
+
+    @Test
     void currentUserReturnsAuthoritativeRolesAndPermissions() {
         UserEntity alice = user(SecurityStatus.ENABLED, "correct-password");
         when(users.selectById(1L)).thenReturn(alice);

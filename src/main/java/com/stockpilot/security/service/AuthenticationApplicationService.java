@@ -108,6 +108,7 @@ public class AuthenticationApplicationService implements ApplicationRunner {
         if (admin == null || admin.getStatus() != SecurityStatus.ENABLED)
             throw new IllegalStateException("Enabled ADMIN role missing");
         if (userMapper.findByUsername(username) != null) return;
+        PasswordValidation.requireSupportedNewPassword(securityProperties.bootstrapAdminPassword());
         UserEntity u = new UserEntity();
         u.setUsername(username);
         u.setDisplayName("系统管理员");

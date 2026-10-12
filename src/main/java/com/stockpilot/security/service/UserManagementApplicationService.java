@@ -44,6 +44,8 @@ public class UserManagementApplicationService {
 
     @Transactional
     public SecurityVO.User createUser(SecurityRequests.CreateUser request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
+        PasswordValidation.requireSupportedNewPassword(request.password());
         UserEntity user = new UserEntity();
         user.setUsername(request.username().trim());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
@@ -64,6 +66,9 @@ public class UserManagementApplicationService {
 
     @Transactional
     public SecurityVO.User updateUser(long id, SecurityRequests.UpdateUser request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
+        if (request.newPassword() != null && !request.newPassword().isBlank())
+            PasswordValidation.requireSupportedNewPassword(request.newPassword());
         UserEntity user = requireUser(id);
         user.setDisplayName(request.displayName().trim());
         if (request.newPassword() != null && !request.newPassword().isBlank()) {
@@ -79,6 +84,7 @@ public class UserManagementApplicationService {
 
     @Transactional
     public SecurityVO.User changeStatus(long id, SecurityRequests.Status request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         UserEntity user = requireUser(id);
         user.setStatus(request.status());
         user.setVersion(request.version());
@@ -92,6 +98,7 @@ public class UserManagementApplicationService {
 
     @Transactional
     public SecurityVO.User replaceRoles(long id, SecurityRequests.Ids request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         requireUser(id);
         validateRoles(request.ids());
         userMapper.deleteRoles(id);

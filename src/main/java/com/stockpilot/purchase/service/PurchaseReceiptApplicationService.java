@@ -49,6 +49,7 @@ public class PurchaseReceiptApplicationService {
     private final InventoryMutationApplicationService inventory;
     private final TransactionalOutboxApplicationService outbox;
     private final com.stockpilot.masterdata.service.SupplierApplicationService supplierService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @org.springframework.beans.factory.annotation.Value(
             "${stockpilot.business.separate-approval:false}")
@@ -120,13 +121,15 @@ public class PurchaseReceiptApplicationService {
             MasterDataReferenceApplicationService masterData,
             InventoryMutationApplicationService inventory,
             TransactionalOutboxApplicationService outbox,
-            com.stockpilot.masterdata.service.SupplierApplicationService supplierService) {
+            com.stockpilot.masterdata.service.SupplierApplicationService supplierService,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.receipts = receipts;
         this.lines = lines;
         this.masterData = masterData;
         this.inventory = inventory;
         this.outbox = outbox;
         this.supplierService = supplierService;
+        this.objectMapper = objectMapper;
     }
 
     // 创建采购入库草稿：校验仓库、库位、SKU 和明细唯一性，规范化单号后一次性保存单头与明细。
@@ -285,7 +288,22 @@ public class PurchaseReceiptApplicationService {
             throw new BusinessException(PurchaseReceiptErrorCode.NOT_FOUND);
         }
         return PurchaseReceiptViewAssembler.detail(
-                receipt, lines.selectByReceiptId(id), receipts.actions(id));
+                receipt,
+                lines.selectByReceiptId(id),
+                receipts.actions(id).stream().filter(this::actionVisible).toList());
+    }
+
+    private boolean actionVisible(com.stockpilot.shared.api.BusinessActionVO action) {
+        var scope = com.stockpilot.shared.auth.WarehouseAccess.current();
+        if (scope.allWarehouses()) return true;
+        try {
+            var evidence = objectMapper.readTree(action.evidenceJson());
+            return evidence != null
+                    && evidence.path("warehouseId").isIntegralNumber()
+                    && scope.permits(evidence.path("warehouseId").asLong());
+        } catch (java.io.IOException | IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     // 分页查询采购入库摘要；单号查询统一转为大写以匹配创建时的规范化规则。

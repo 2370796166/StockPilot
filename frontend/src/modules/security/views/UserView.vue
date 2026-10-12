@@ -86,6 +86,11 @@ async function save() {
     ElMessage.warning('请检查用户名、显示名和密码')
     return
   }
+  const password = editing.value ? form.newPassword : form.password
+  if (password && new TextEncoder().encode(password).length > 72) {
+    ElMessage.warning('密码过长，最多72字节；中文和表情会占多个字节')
+    return
+  }
   saving.value = true
   try {
     if (editing.value)
@@ -224,7 +229,7 @@ const ElTableColumn = TableColumn<UserRecord>
           label="新密码（留空不修改）"
           ><el-input
             v-model="form.newPassword"
-            maxlength="100"
+            maxlength="72"
             type="password"
             show-password /></el-form-item
         ><el-form-item
@@ -232,7 +237,7 @@ const ElTableColumn = TableColumn<UserRecord>
           label="密码"
           ><el-input
             v-model="form.password"
-            maxlength="100"
+            maxlength="72"
             type="password"
             show-password /></el-form-item></el-form
       ><template #footer

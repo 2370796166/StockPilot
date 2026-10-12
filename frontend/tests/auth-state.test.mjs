@@ -27,6 +27,28 @@ function setup(api) {
   return { store: load('@/modules/auth/store').useAuthStore(), token: () => token, clears: () => clears }
 }
 
+test('limited warehouse scope blocks global security actions while preserving business access', async () => {
+  let allWarehouses = false
+  const authorities = [
+    'SECURITY_USER_WRITE',
+    'SECURITY_ROLE_WRITE',
+    'SECURITY_PERMISSION_WRITE',
+    'SECURITY_GRANT',
+    'AUDIT_LOG_READ',
+    'INVENTORY_READ',
+    'PURCHASE_RECEIPT_WRITE',
+  ]
+  const { store } = setup({ getCurrentUser: async () => ({ authorities, allWarehouses, warehouseIds: [3] }) })
+  await store.loadCurrentUser()
+  for (const authority of authorities.slice(0, 5)) assert.equal(store.can(authority), false)
+  assert.equal(store.can('INVENTORY_READ'), true)
+  assert.equal(store.can('PURCHASE_RECEIPT_WRITE'), true)
+  allWarehouses = true
+  await store.loadCurrentUser()
+  assert.equal(store.can('SECURITY_GRANT'), true)
+  assert.equal(store.can('AUDIT_LOG_READ'), true)
+})
+
 test('concurrent user refreshes share a request, later refresh sees changed permissions', async () => {
   const pending = deferred()
   let calls = 0

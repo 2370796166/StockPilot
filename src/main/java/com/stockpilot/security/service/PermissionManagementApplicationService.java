@@ -27,6 +27,7 @@ public class PermissionManagementApplicationService {
 
     @Transactional
     public SecurityVO.Permission createPermission(SecurityRequests.CreatePermission request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         PermissionEntity permission = new PermissionEntity();
         permission.setCode(request.code());
         permission.setName(request.name().trim());
@@ -49,6 +50,7 @@ public class PermissionManagementApplicationService {
     @Transactional
     public SecurityVO.Permission updatePermission(
             long id, SecurityRequests.UpdatePermission request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         PermissionEntity permission = requirePermission(id);
         permission.setName(request.name().trim());
         permission.setDescription(normalizeDescription(request.description()));
@@ -62,6 +64,7 @@ public class PermissionManagementApplicationService {
 
     @Transactional
     public SecurityVO.Permission changeStatus(long id, SecurityRequests.Status request) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         PermissionEntity permission = requirePermission(id);
         permission.setStatus(request.status());
         permission.setVersion(request.version());

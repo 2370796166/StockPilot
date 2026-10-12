@@ -75,7 +75,8 @@ class PurchaseReceiptApplicationServiceTest {
                         masterData,
                         inventory,
                         mock(TransactionalOutboxApplicationService.class),
-                        mock(com.stockpilot.masterdata.service.SupplierApplicationService.class));
+                        mock(com.stockpilot.masterdata.service.SupplierApplicationService.class),
+                        new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
     @Test

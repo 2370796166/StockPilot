@@ -71,10 +71,13 @@ public class InventoryMutationApplicationService {
     @Transactional
     public InventoryBalanceVO applyChange(InventoryChangeCommand command) {
         InventoryBalanceEntity balance =
-                balances.selectByDimension(
+                balances.selectByDimensionForUpdate(
                         command.warehouseId(), command.locationId(), command.skuId());
         if (balance == null) {
             throw new BusinessException(InventoryErrorCode.BALANCE_NOT_FOUND);
+        }
+        if (balance.getVersion() == null || balance.getVersion() != command.expectedVersion()) {
+            throw new BusinessException(InventoryErrorCode.CONCURRENT_MODIFICATION);
         }
         InventoryBalanceState before =
                 new InventoryBalanceState(

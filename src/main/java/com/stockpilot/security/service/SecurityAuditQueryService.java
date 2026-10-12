@@ -19,6 +19,7 @@ public class SecurityAuditQueryService {
 
     @Transactional(readOnly = true)
     public PageResult<SecurityVO.Audit> pageAudits(long page, long size) {
+        com.stockpilot.shared.auth.WarehouseAccess.requireAll();
         Page<AuditLogEntity> result =
                 auditLogMapper.selectPage(
                         Page.of(page, size),
