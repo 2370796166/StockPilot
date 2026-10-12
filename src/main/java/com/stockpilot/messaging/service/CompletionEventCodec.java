@@ -1,6 +1,7 @@
 package com.stockpilot.messaging.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.messaging.domain.BusinessEventNames;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
@@ -18,7 +19,10 @@ public class CompletionEventCodec {
     public CompletionBusinessEvent decodeAndValidate(String json) {
         try {
             CompletionBusinessEvent event =
-                    objectMapper.readValue(json, CompletionBusinessEvent.class);
+                    objectMapper
+                            .readerFor(CompletionBusinessEvent.class)
+                            .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                            .readValue(json);
             validate(event);
             return event;
         } catch (JsonProcessingException exception) {
@@ -42,6 +46,7 @@ public class CompletionEventCodec {
             throw new IllegalArgumentException("Invalid messageId", exception);
         }
         if (event.businessNo().isBlank()
+                || event.businessNo().codePointCount(0, event.businessNo().length()) > 64
                 || event.data().documentId() <= 0
                 || event.data().warehouseId() <= 0
                 || event.data().dimensions() == null

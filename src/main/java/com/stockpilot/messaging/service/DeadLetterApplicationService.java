@@ -1,10 +1,10 @@
 package com.stockpilot.messaging.service;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stockpilot.messaging.domain.CompletionBusinessEvent;
 import com.stockpilot.messaging.mapper.FailureRecordMapper;
 import com.stockpilot.messaging.mapper.MessageTraceMapper;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.stereotype.Service;
@@ -32,8 +32,10 @@ public class DeadLetterApplicationService {
     // 处理最终死信：保留原始载荷和失败上下文，形成可查询、可人工补偿的异常记录。
     public void record(String rawJson, MessageProperties properties) {
         String messageId = validId(properties.getMessageId());
-        String eventName = bounded(header(properties, "eventName", "unknown-event"), 100);
-        String businessNo = bounded(header(properties, "businessNo", "UNKNOWN"), 64);
+        String eventName =
+                MessageFailureText.bounded(header(properties, "eventName", "unknown-event"), 100);
+        String businessNo =
+                MessageFailureText.bounded(header(properties, "businessNo", "UNKNOWN"), 64);
         int eventVersion = integerHeader(properties, "eventVersion", 1);
         String payload = validJson(rawJson);
         try {
@@ -46,7 +48,7 @@ public class DeadLetterApplicationService {
             // Invalid payloads still need a durable operator-visible failure record.
         }
         String reason = header(properties, "x-exception-message", "consumer retries exhausted");
-        reason = bounded(reason, 2000);
+        reason = MessageFailureText.bounded(reason, 2000);
         failures.upsert(
                 messageId,
                 eventName,
@@ -63,19 +65,25 @@ public class DeadLetterApplicationService {
                 "DEAD_LETTERED",
                 CompletionEventConsumptionApplicationService.CONSUMER_NAME,
                 0,
-                bounded(reason, 1000));
+                MessageFailureText.bounded(reason, 1000));
     }
 
     private String validJson(String raw) {
         try {
-            objectMapper.readTree(raw);
-            return raw;
+            var tree =
+                    objectMapper
+                            .reader()
+                            .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                            .readTree(raw);
+            if (tree != null && !tree.isMissingNode()) return raw;
         } catch (Exception exception) {
-            try {
-                return objectMapper.writeValueAsString(Map.of("rawPayload", raw));
-            } catch (Exception impossible) {
-                return "{\"rawPayload\":\"unavailable\"}";
-            }
+            // Empty or malformed JSON must be wrapped before writing the JSON column.
+        }
+        try {
+            return objectMapper.writeValueAsString(
+                    java.util.Collections.singletonMap("rawPayload", raw));
+        } catch (Exception impossible) {
+            return "{\"rawPayload\":\"unavailable\"}";
         }
     }
 
@@ -96,11 +104,5 @@ public class DeadLetterApplicationService {
         Object value = properties.getHeaders().get(name);
         int version = value instanceof Number number ? number.intValue() : fallback;
         return version > 0 ? version : fallback;
-    }
-
-    private String bounded(String value, int maxCharacters) {
-        return value.codePointCount(0, value.length()) <= maxCharacters
-                ? value
-                : value.substring(0, value.offsetByCodePoints(0, maxCharacters));
     }
 }

@@ -84,6 +84,32 @@ class OutboxPublicationApplicationServiceTest {
     }
 
     @Test
+    void terminalFailureRetainsTheCompleteCharacterAtTheColumnBoundary() throws Exception {
+        Fixture fixture = new Fixture(2, 3);
+        doThrow(new IllegalStateException("a".repeat(999) + "😀b"))
+                .when(fixture.transport)
+                .publish(fixture.message);
+        assertTrue(fixture.service.publishNextDue());
+        verify(fixture.failures)
+                .upsert(
+                        fixture.message.getMessageId(),
+                        fixture.message.getEventName(),
+                        1,
+                        fixture.message.getBusinessNo(),
+                        "PUBLISH",
+                        "outbox-publisher",
+                        "{}",
+                        "a".repeat(999) + "😀");
+        verify(fixture.outbox)
+                .markFailure(
+                        eq(fixture.message.getMessageId()),
+                        eq("FAILED"),
+                        any(),
+                        eq("a".repeat(999) + "😀"),
+                        eq(fixture.message.getClaimToken()));
+    }
+
+    @Test
     void confirmedMessagePersistenceFailureIsNotSwallowedAsAMqRetry() {
         Fixture fixture = new Fixture(0, 3);
         when(fixture.outbox.markPublished(eq(fixture.message.getMessageId()), anyString()))

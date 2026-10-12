@@ -24,8 +24,10 @@ public class ConsumerRetryTraceApplicationService {
     public void recordFailure(
             String json, MessageProperties properties, int attempt, RuntimeException failure) {
         String messageId = header(properties, "messageId", properties.getMessageId());
-        String eventName = header(properties, "eventName", "unknown-event");
-        String businessNo = header(properties, "businessNo", "UNKNOWN");
+        String eventName =
+                MessageFailureText.bounded(header(properties, "eventName", "unknown-event"), 100);
+        String businessNo =
+                MessageFailureText.bounded(header(properties, "businessNo", "UNKNOWN"), 64);
         try {
             CompletionBusinessEvent event = codec.decodeAndValidate(json);
             messageId = event.messageId();
@@ -37,7 +39,7 @@ public class ConsumerRetryTraceApplicationService {
         }
         String detail =
                 failure.getMessage() == null ? failure.getClass().getName() : failure.getMessage();
-        if (detail.length() > 1000) detail = detail.substring(0, 1000);
+        detail = MessageFailureText.bounded(detail, 1000);
         traces.insert(
                 messageId,
                 eventName,

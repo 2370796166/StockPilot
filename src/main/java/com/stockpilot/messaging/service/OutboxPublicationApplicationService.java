@@ -122,7 +122,7 @@ public class OutboxPublicationApplicationService {
                 exception.getMessage() == null
                         ? exception.getClass().getSimpleName()
                         : exception.getMessage();
-        if (reason.length() > 1000) reason = reason.substring(0, 1000);
+        reason = MessageFailureText.bounded(reason, 1000);
         int attempt = message.getPublishAttempts();
         boolean terminal = attempt >= properties.getPublisherMaxAttempts();
         LocalDateTime next =

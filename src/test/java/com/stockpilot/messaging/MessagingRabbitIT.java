@@ -66,6 +66,7 @@ class MessagingRabbitIT {
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper json;
     @Autowired RabbitAdmin rabbitAdmin;
+    @Autowired org.springframework.amqp.rabbit.core.RabbitTemplate rabbitTemplate;
     @Autowired MessagingProperties properties;
     @Autowired OutboxPublicationApplicationService publications;
     @Autowired ApplicationEventPublisher events;
@@ -163,6 +164,66 @@ class MessagingRabbitIT {
         assertEquals(
                 "PUBLISHED",
                 jdbc.queryForObject("SELECT status FROM async_outbox_message", String.class));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"blank", "trailing", "oversized"})
+    void malformedBodyCannotPoisonTheDeadLetterQueue(String variant) throws Exception {
+        String id = UUID.randomUUID().toString();
+        var event =
+                new CompletionBusinessEvent(
+                        id,
+                        BusinessEventNames.SALES_OUTBOUND_COMPLETED,
+                        1,
+                        variant.equals("oversized") ? "x".repeat(65) : "SO-INVALID-BODY",
+                        Instant.now(),
+                        new CompletionBusinessEvent.CompletionData(
+                                1L,
+                                2L,
+                                List.of(new CompletionBusinessEvent.InventoryDimension(3L, 4L))));
+        String raw =
+                variant.equals("blank")
+                        ? " \r\n\t"
+                        : json.writeValueAsString(event) + (variant.equals("trailing") ? "{}" : "");
+        var headers = new org.springframework.amqp.core.MessageProperties();
+        headers.setMessageId(id);
+        headers.setHeader("eventName", "x".repeat(101));
+        headers.setHeader("businessNo", "y".repeat(65));
+        rabbitTemplate.send(
+                properties.getExchange(),
+                BusinessEventNames.SALES_OUTBOUND_ROUTING_KEY,
+                new org.springframework.amqp.core.Message(
+                        raw.getBytes(java.nio.charset.StandardCharsets.UTF_8), headers));
+        await(
+                () ->
+                        count(
+                                        "SELECT COUNT(*) FROM async_failure_record WHERE message_id='"
+                                                + id
+                                                + "' AND failure_stage='CONSUME'")
+                                == 1,
+                15_000);
+        var payload =
+                json.readTree(
+                        jdbc.queryForObject(
+                                "SELECT payload_json FROM async_failure_record WHERE message_id=?",
+                                String.class,
+                                id));
+        if (variant.equals("oversized"))
+            assertEquals(event.businessNo(), payload.path("businessNo").asText());
+        else assertEquals(raw, payload.path("rawPayload").asText());
+        assertEquals(
+                "x".repeat(100),
+                jdbc.queryForObject(
+                        "SELECT event_name FROM async_failure_record WHERE message_id=?",
+                        String.class,
+                        id));
+        assertEquals(
+                "y".repeat(64),
+                jdbc.queryForObject(
+                        "SELECT business_no FROM async_failure_record WHERE message_id=?",
+                        String.class,
+                        id));
+        verify(completionEventConsumption, never()).handle(any());
     }
 
     @Test

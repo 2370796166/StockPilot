@@ -38,6 +38,40 @@ class CompletionEventCodecTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", " trailing", " null"})
+    void rejectsAnyContentAfterACompleteEvent(String extra) throws Exception {
+        String payload =
+                json.writeValueAsString(event(BusinessEventNames.PURCHASE_RECEIPT_COMPLETED, 1));
+        assertThrows(
+                IllegalArgumentException.class, () -> codec.decodeAndValidate(payload + extra));
+    }
+
+    @Test
+    void businessNumberMustFitThePersistenceContract() throws Exception {
+        var original = event(BusinessEventNames.PURCHASE_RECEIPT_COMPLETED, 1);
+        var boundary =
+                new CompletionBusinessEvent(
+                        original.messageId(),
+                        original.eventName(),
+                        1,
+                        "x".repeat(64),
+                        original.occurredAt(),
+                        original.data());
+        assertEquals(boundary, codec.decodeAndValidate(json.writeValueAsString(boundary)));
+        var oversized =
+                new CompletionBusinessEvent(
+                        original.messageId(),
+                        original.eventName(),
+                        1,
+                        "x".repeat(65),
+                        original.occurredAt(),
+                        original.data());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> codec.decodeAndValidate(json.writeValueAsString(oversized)));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(
             com.stockpilot.inventory.domain.InventoryAvailabilityChanged.Action.class)
     void supportsEachAvailabilityChangeWithTheVersionedEnvelope(
